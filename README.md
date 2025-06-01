@@ -41,20 +41,21 @@ This project serves as a portfolio piece demonstrating expertise in Generative A
 * **Containerization**: `Dockerfile` provided for building a portable application image.
 * **API Layer (Basic)**: A FastAPI application (`src/api/main.py`) providing an endpoint to interact with the Cognitive Swarm.
 
-## 🛠️ Tech Stack & Architecture
+### 🛠️ Tech Stack & Architecture
 
 * **Core Language**: Python 3.11+
 * **LLM Orchestration**: LangGraph
 * **Specialized Agent Teams**: CrewAI (for specific sub-tasks like deep document analysis)
 * **RAG & Data Indexing**: LlamaIndex (interfacing with MongoDB Atlas Vector Search)
-* **LLM Interactions**: LangChain (agents, prompts, LLM wrappers for OpenAI)
-* **LLM Génératifs (Agents, Synthèse)**:
-    * **Fournisseur par Défaut :** API Hugging Face (utilisant `mistralai/Mixtral-8x7B-Instruct-v0.1` par défaut).
-    * **Configurable :** Supporte OpenAI (ex: `gpt-4o`), API Hugging Face (ex: `Mixtral-8x7B`), et Ollama (ex: `mistral`, `llama3`) via la variable `DEFAULT_LLM_MODEL_PROVIDER` dans le fichier `.env`.
-* **Modèles d'Embedding (RAG)**:
-    * **Fournisseur par Défaut :** Hugging Face (utilisant `sentence-transformers/all-MiniLM-L6-v2` par défaut, dimension 384).
-    * **Configurable :** Supporte OpenAI (ex: `text-embedding-3-small`, dimension 1536), Hugging Face (modèles Sentence Transformers), et Ollama (ex: `nomic-embed-text`, dimension 768) via la variable `DEFAULT_EMBEDDING_PROVIDER` dans le fichier `.env`.
-* **Clés API Requises :** `OPENAI_API_KEY` (si OpenAI est utilisé pour les LLMs génératifs ou les embeddings), `HUGGINGFACE_API_KEY` (si l'API Hugging Face est utilisée pour les LLMs génératifs). Aucune clé API pour les embeddings Hugging Face locaux (Sentence Transformers) ou Ollama (nécessite une instance Ollama en cours d'exécution).
+* **LLM Interactions**: LangChain (agents, prompts, LLM wrappers).
+* **Centralized LLM Management**: The `src/llm_services/llm_factory.py` module plays a crucial role by centralizing the instantiation of Language Models (LLMs). It allows for consistent selection and configuration of the LLM (OpenAI, Hugging Face API, Ollama) for all agents (LangGraph, CrewAI) and other components (like `SynthesisEvaluator`) based on parameters defined in `.env` and `config/settings.py`. This approach facilitates maintenance and flexibility in choosing model providers. It also integrates specific mechanisms like `StreamFallbackChatHuggingFace` to improve streaming compatibility for certain providers.
+* **Generative LLMs (Agents, Synthesis)**:
+    * **Default Provider:** Hugging Face API (using `mistralai/Mixtral-8x7B-Instruct-v0.1` by default).
+    * **Configurable:** Supports OpenAI (e.g., `gpt-4o`), Hugging Face API (e.g., `Mixtral-8x7B`), and Ollama (e.g., `mistral`, `llama3`) via the `DEFAULT_LLM_MODEL_PROVIDER` variable in the `.env` file. *The instantiation and configuration of these models are managed by `src/llm_services/llm_factory.py`.*
+* **Embedding Models (RAG)**:
+    * **Default Provider:** Hugging Face (using `sentence-transformers/all-MiniLM-L6-v2` by default, 384 dimension).
+    * **Configurable:** Supports OpenAI (e.g., `text-embedding-3-small`, 1536 dimension), Hugging Face (Sentence Transformers models), and Ollama (e.g., `nomic-embed-text`, 768 dimension) via the `DEFAULT_EMBEDDING_PROVIDER` variable in the `.env` file.
+* **Required API Keys:** `OPENAI_API_KEY` (if OpenAI is used for generative LLMs or embeddings), `HUGGINGFACE_API_KEY` (if the Hugging Face API is used for generative LLMs). No API key for local Hugging Face embeddings (Sentence Transformers) or Ollama (requires a running Ollama instance).
 * **Vector Database & Checkpointing**: MongoDB Atlas
 * **Data Processing**: PyMuPDF (PDF parsing), TikToken (tokenization), Pandas
 * **External APIs**: ArXiv Python library
@@ -64,9 +65,11 @@ This project serves as a portfolio piece demonstrating expertise in Generative A
 * **API**: FastAPI, Uvicorn
 
 **High-Level Architecture:**
-1.  **Data Ingestion**: ArXiv papers are downloaded, parsed, chunked, embedded (fournisseur configurable : OpenAI, HuggingFace, ou Ollama ; par défaut HuggingFace avec `sentence-transformers/all-MiniLM-L6-v2`), and stored in a MongoDB collection. Atlas Vector Search and text indexes are created (la dimension de l'index vectoriel s'adapte au modèle d'embedding choisi).
+
+1.  **Data Ingestion**: ArXiv papers are downloaded, parsed, chunked, embedded (configurable provider: OpenAI, HuggingFace, or Ollama; defaults to HuggingFace with `sentence-transformers/all-MiniLM-L6-v2`), and stored in a MongoDB collection. Atlas Vector Search and text indexes are created (the vector index dimension adapts to the chosen embedding model).
 2.  **User Query**: Submitted via CLI or API.
 3.  **LangGraph Workflow (`CognitiveSwarm`)**:
+    * *LLM instances for the agents in this workflow (Planner, ArXiv Searcher, Document Analyzer, Synthesizer) are provided by the centralized module `src/llm_services/llm_factory.py`, ensuring consistent configuration and provider selection (OpenAI, Hugging Face API, Ollama) across the system.*
     * A `ResearchPlannerAgent` creates a research plan.
     * A `router_after_planner` directs flow:
         * `ArxivSearchAgent` may search ArXiv for new papers (using `arxiv_search_tool`).
@@ -78,28 +81,29 @@ This project serves as a portfolio piece demonstrating expertise in Generative A
 ## 📁 Directory Structure
 ```
 cognitive-swarm-agents/
-├── config/               # Configuration files (settings.py, logging_config.py)
-├── data/                 # Local data (corpus, evaluation datasets examples)
-│   ├── corpus/           # Potentially downloaded ArXiv papers (PDFs, metadata)
-│   └── evaluation/       # Example evaluation dataset JSON files
-├── notebooks/            # Jupyter notebooks for setup, demos, experiments
-├── scripts/              # CLI scripts (run_ingestion.py, run_cognitive_swarm.py, run_evaluation.py)
-├── src/                  # Source code for the project
-│   ├── agents/           # Agent architectures (LangGraph) and tool definitions
+├── config/              # Configuration files (settings.py, logging_config.py)
+├── data/                # Local data (corpus, evaluation dataset examples)
+│   ├── corpus/          # Potentially downloaded ArXiv papers (PDFs, metadata)
+│   └── evaluation/      # Example JSON evaluation dataset files
+├── notebooks/           # Jupyter notebooks for setup, demos, experiments
+├── scripts/             # CLI scripts (run_ingestion.py, run_cognitive_swarm.py, run_evaluation.py)
+├── src/                 # Source code for the project
+│   ├── agents/          # Agent architectures (LangGraph) and tool definitions
 │   │   └── crewai_teams/ # CrewAI team definitions (e.g., document_analysis_crew.py)
-│   ├── api/              # FastAPI application (main.py, schemas.py)
-│   ├── data_processing/  # Modules for data ingestion and preprocessing
-│   ├── evaluation/       # Modules for RAG/synthesis evaluation and W&B logging
-│   ├── graph/            # LangGraph workflow definition and checkpointer
-│   ├── rag/              # RAG engine using LlamaIndex
-│   └── vector_store/     # MongoDB manager for collections and indexes
-├── .env                  # Local environment variables (API keys, MONGO_URI - GIT IGNORED)
-├── .env.example          # Example template for .env
-├── environment.yml       # Conda environment definition
-├── requirements.txt      # Pip requirements file
-├── Dockerfile            # Instructions to build the Docker image
-├── .dockerignore         # Specifies files to ignore when building the Docker image
-└── README.md             # This file
+│   ├── api/             # FastAPI application (main.py, schemas.py)
+│   ├── data_processing/ # Modules for data ingestion and preprocessing
+│   ├── evaluation/      # Modules for RAG/synthesis evaluation and W&B logging
+│   ├── graph/           # LangGraph workflow definition and checkpointer
+│   ├── llm_services/    # Modules for LLM management and instantiation (e.g., llm_factory.py)
+│   ├── rag/             # RAG engine using LlamaIndex
+│   └── vector_store/    # MongoDB manager for collections and indexes
+├── .env                 # Local environment variables (API Keys, MONGO_URI - GIT IGNORED)
+├── .env.example         # Example template for .env
+├── environment.yml      # Conda environment definition
+├── requirements.txt     # Pip requirements file
+├── Dockerfile           # Instructions to build the Docker image
+├── .dockerignore        # Specifies files to ignore when building the Docker image
+└── README.md            # This file
 ```
 
 ## ⚙️ Setup Instructions
