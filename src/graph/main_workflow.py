@@ -1,4 +1,4 @@
-# cognitive-swarm-agents/src/graph/main_workflow.py
+# src/graph/main_workflow.py
 import logging
 import uuid
 from typing import TypedDict, Annotated, List, Optional, Dict, Any
@@ -7,21 +7,23 @@ import datetime
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.base import BaseCheckpointSaver # Pas utilisé directement ici mais bon à garder si on étendait
 from langgraph.prebuilt import ToolNode, tools_condition 
 
 from config.settings import settings
+# MODIFICATION: Suppression de l'import inutilisé de get_llm.
+# Les fonctions create_..._agent utilisent get_llm de manière interne et ont été mises à jour.
 from src.agents.agent_architectures import (
     create_research_planner_agent,
     create_arxiv_search_agent,
-    create_document_analysis_agent, # Cette fonction retourne maintenant un agent avec le nouvel outil
-    create_synthesis_agent,
-    get_llm 
+    create_document_analysis_agent,
+    create_synthesis_agent
+    # get_llm  <-- Suppression de cette ligne
 )
 from src.agents.tool_definitions import (
-    arxiv_search_tool,
+    arxiv_search_tool, 
     knowledge_base_retrieval_tool,
-    document_deep_dive_analysis_tool # <<< MODIFICATION : Importer le nouvel outil
+    document_deep_dive_analysis_tool
 )
 from src.graph.checkpointer import MongoDBSaver 
 
@@ -39,22 +41,22 @@ class GraphState(TypedDict):
     synthesis_output: Optional[str] = None
     error_message: Optional[str] = None
 
-# --- Liste des Outils et ToolNode (MODIFIÉ) ---
+# --- Liste des Outils et ToolNode (inchangé par rapport à votre version initiale) ---
 all_tools = [
     arxiv_search_tool, 
     knowledge_base_retrieval_tool,
-    document_deep_dive_analysis_tool # <<< MODIFICATION : Ajout du nouvel outil à la liste
+    document_deep_dive_analysis_tool
 ]
 tool_node = ToolNode(all_tools)
 
 # --- Initialisation des Agents (inchangé) ---
+# Ces fonctions vont maintenant utiliser get_llm de llm_factory indirectement.
 planner_agent_executor = create_research_planner_agent()
 arxiv_search_agent_executor = create_arxiv_search_agent()
-# create_document_analysis_agent() va maintenant retourner un agent qui connaît le deep_dive_tool
 doc_analysis_agent_executor = create_document_analysis_agent() 
 synthesis_agent_executor = create_synthesis_agent()
 
-# --- Nœuds du Graphe (Wrapper pour Agents - inchangés en structure, mais doc_analysis_agent_executor est mis à jour) ---
+# --- Nœuds du Graphe (Wrapper pour Agents - inchangés) ---
 def run_agent_node(state: GraphState, agent_executor, node_name: str, input_override: Optional[str] = None) -> Dict[str, Any]:
     logger.debug(f"--- EXECUTING AGENT NODE: {node_name} ---")
     current_messages = state["messages"]
@@ -67,9 +69,8 @@ def run_agent_node(state: GraphState, agent_executor, node_name: str, input_over
         response = agent_executor.invoke({"messages": messages_for_agent})
         output_content = str(response.get("output", ""))
         
-        # Gestion des tool_calls si présents dans la réponse de l'agent
-        agent_tool_calls = response.get("tool_calls") # OpenAI tools agent specific
-        if not agent_tool_calls and hasattr(response, 'tool_calls'): # Check attribute if dict key missing
+        agent_tool_calls = response.get("tool_calls") 
+        if not agent_tool_calls and hasattr(response, 'tool_calls'):
             agent_tool_calls = response.tool_calls
 
         if agent_tool_calls:
@@ -104,7 +105,7 @@ def document_analysis_node_wrapper(state: GraphState) -> Dict[str, Any]:
     logger.info(">>> Document Analysis Node <<<")
     query_for_kb = state.get("kb_query_for_analyzer") or state.get("user_query")
     instruction = f"Analyze documents from the knowledge base related to: '{query_for_kb}'."
-    context_from_messages = "\n".join([msg.content for msg in state["messages"] if isinstance(msg, (ToolMessage, AIMessage)) and (msg.name == "ArxivSearchAgent" or (hasattr(msg, 'tool_calls') and not msg.tool_calls))]) # Get content from previous non-tool-calling AI messages or tool messages
+    context_from_messages = "\n".join([msg.content for msg in state["messages"] if isinstance(msg, (ToolMessage, AIMessage)) and (msg.name == "ArxivSearchAgent" or (hasattr(msg, 'tool_calls') and not msg.tool_calls))])
     
     if state.get("research_plan"):
         instruction = f"Research Plan:\n{state['research_plan']}\n\n"
@@ -117,8 +118,6 @@ def document_analysis_node_wrapper(state: GraphState) -> Dict[str, Any]:
     last_message = update.get("messages", [])[-1] if update.get("messages") else None
     if isinstance(last_message, AIMessage) and not last_message.tool_calls:
         analysis_summary = last_message.content
-        # Si c'est le résultat d'un deep_dive_tool, il sera déjà détaillé.
-        # Si c'est une analyse plus simple, ce sera le résumé de l'agent.
         logger.info(f"Document Analysis Output (summary or deep dive report): {analysis_summary[:300]}...")
         return {**update, "document_analysis_summary": analysis_summary}
     return update
@@ -145,14 +144,14 @@ def router_after_planner(state: GraphState) -> str:
         logger.info("Router decision: Go to Document Analysis (Knowledge Base).")
         return "doc_analyzer"
 
-# --- Construction du Graphe (inchangé en structure, mais ToolNode est mis à jour) ---
+# --- Construction du Graphe (inchangé) ---
 workflow_v2_1 = StateGraph(GraphState)
 
 workflow_v2_1.add_node("planner", planner_node)
 workflow_v2_1.add_node("arxiv_searcher", arxiv_search_node_wrapper)
 workflow_v2_1.add_node("doc_analyzer", document_analysis_node_wrapper)
 workflow_v2_1.add_node("synthesizer", synthesis_node_wrapper)
-workflow_v2_1.add_node("tools_invoker", tool_node) # Ce ToolNode connaît maintenant tous les outils
+workflow_v2_1.add_node("tools_invoker", tool_node)
 
 workflow_v2_1.set_entry_point("planner")
 
@@ -171,15 +170,11 @@ workflow_v2_1.add_conditional_edges(
     tools_condition,
     {"tools_invoker": "tools_invoker", END: "synthesizer"}
 )
-# Pas d'arête explicite DEPUIS tools_invoker car LangGraph gère le retour à l'agent appelant
-# pour que tools_condition soit réévalué sur cet agent.
 workflow_v2_1.add_edge("synthesizer", END)
 
 # --- Compilation du Graphe (inchangé) ---
 mongo_checkpointer = MongoDBSaver() 
 graph_app_v2_1 = workflow_v2_1.compile(checkpointer=mongo_checkpointer)
-# graph_app_v2_1 = workflow_v2_1.compile() # Sans checkpointer pour tests rapides
-
 
 # --- Fonction d'Exécution (inchangée) ---
 async def run_cognitive_swarm_v2_1(query: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
@@ -195,7 +190,7 @@ async def run_cognitive_swarm_v2_1(query: str, thread_id: Optional[str] = None) 
     }
     logger.info(f"Running Cognitive Swarm V2.1 for query: '{query}' with thread_id: {thread_id}")
     full_final_state = None
-    async for event in graph_app_v2_1.astream_events(initial_state, config=config, version="v2"):
+    async for event in graph_app_v2_1.astream_events(initial_state, config=config, version="v2"): # type: ignore
         kind = event["event"]
         if kind == "on_chat_model_stream":
             content = event["data"]["chunk"].content
@@ -207,12 +202,12 @@ async def run_cognitive_swarm_v2_1(query: str, thread_id: Optional[str] = None) 
             tool_output = event['data'].get('output')
             logger.debug(f"Tool End: {event['name']} with output: {str(tool_output)[:200]}...")
             if isinstance(tool_output, str) and len(tool_output) < 500:
-                 print(f"\n[Tool Output ({event['name']}): {tool_output}]", flush=True)
+                print(f"\n[Tool Output ({event['name']}): {tool_output}]", flush=True)
             else:
-                 print(f"\n[Tool Output ({event['name']}): Received (output might be long or complex)]", flush=True)
-        elif kind == "on_chain_end" or kind == "on_llm_end":
+                print(f"\n[Tool Output ({event['name']}): Received (output might be long or complex)]", flush=True)
+        elif kind == "on_chain_end" or kind == "on_llm_end": # type: ignore
             node_name = event['name']
-            if node_name in ["planner", "arxiv_searcher", "doc_analyzer", "synthesizer"]:
+            if node_name in ["planner", "arxiv_searcher", "doc_analyzer", "synthesizer"]: # type: ignore
                 output_data = event['data'].get('output')
                 final_content = None
                 if isinstance(output_data, dict): 
@@ -226,7 +221,7 @@ async def run_cognitive_swarm_v2_1(query: str, thread_id: Optional[str] = None) 
                 else: final_content = str(output_data)
                 if final_content and isinstance(final_content, str):
                     print(f"\nOutput from {node_name}:\n{final_content[:1000]}...\n---", flush=True)
-        if event["event"] == "on_graph_end":
+        if event["event"] == "on_graph_end": # type: ignore
             full_final_state = event["data"].get("output")
             logger.info("Graph execution finished (on_graph_end event).")
 
@@ -235,35 +230,30 @@ async def run_cognitive_swarm_v2_1(query: str, thread_id: Optional[str] = None) 
         return full_final_state
     else:
         try:
-            last_state_snapshot = await graph_app_v2_1.aget_state(config)
+            last_state_snapshot = await graph_app_v2_1.aget_state(config) # type: ignore
             if last_state_snapshot:
                 logger.info(f"Last known state from checkpointer for thread_id {thread_id}: {last_state_snapshot.values}")
                 return last_state_snapshot.values 
             else:
                 logger.error(f"No state could be retrieved from checkpointer for thread_id {thread_id}.")
-                return {"error_message": "Execution completed, but no final state could be retrieved."}
+                return {"error_message": "Execution completed, but no final state could be retrieved."} # type: ignore
         except Exception as e_chk:
             logger.error(f"Could not retrieve last state for thread_id {thread_id} from checkpointer: {e_chk}", exc_info=True)
-            return {"error_message": f"Execution finished but final state could not be determined due to: {str(e_chk)}"}
+            return {"error_message": f"Execution finished but final state could not be determined due to: {str(e_chk)}"} # type: ignore
 
 if __name__ == "__main__":
     import asyncio
-    from config.logging_config import setup_logging
+    from config.logging_config import setup_logging # Uniquement pour le test direct
     setup_logging(level="DEBUG" if settings.DEBUG else "INFO")
 
     async def main_test_v2_1():
-        logger.info("--- Testing Main Workflow V2.1 (with updated tools) ---")
-        if not settings.OPENAI_API_KEY:
-             logger.error("OPENAI_API_KEY not found. Workflow test will likely fail.")
-             return
+        logger.info("--- Testing Main Workflow V2.1 (with updated tools and llm_factory) ---")
+        if not settings.OPENAI_API_KEY and \
+           not (settings.DEFAULT_LLM_MODEL_PROVIDER == "huggingface_api" and settings.HUGGINGFACE_API_KEY) and \
+           not (settings.DEFAULT_LLM_MODEL_PROVIDER == "ollama" and settings.OLLAMA_BASE_URL):
+            logger.error("Required API key or configuration for the default LLM provider not set. Workflow test will likely fail.")
+            return
         
-        # Test avec une requête qui pourrait bénéficier du deep dive tool
-        # Le DocumentAnalysisAgent doit être prompté pour utiliser le deep_dive_tool.
-        # Son prompt actuel lui dit de l'utiliser si la tâche demande explicitement un "deep dive"
-        # ou une "analyse structurée" d'un document unique.
-        # Le planner pourrait générer une telle instruction.
-        
-        # Exemple de requête qui pourrait mener à un deep dive si le planner le demande
         test_query = (
             "I need a deep dive analysis of a key paper on 'sim-to-real transfer in robotics using domain randomization', focusing on its methodology and limitations. "
             "First, find such a key paper if one isn't immediately obvious in the knowledge base."
@@ -278,11 +268,11 @@ if __name__ == "__main__":
         print("\n\n--- Cognitive Swarm V2.1 Execution Finished ---")
         if final_state:
             print("\nFinal Graph State Snapshot:")
-            sorted_keys = sorted(final_state.keys())
+            sorted_keys = sorted(final_state.keys()) # type: ignore
             for key in sorted_keys:
-                value = final_state[key]
+                value = final_state[key] # type: ignore
                 if key == "messages":
-                    print(f"  {key} (last {min(5, len(value))} messages):") # Afficher plus de messages
+                    print(f"  {key} (last {min(5, len(value))} messages):") # type: ignore
                     for msg in value[-5:]: 
                         msg_type = getattr(msg, 'type', 'UNKNOWN_MSG_TYPE').upper()
                         msg_name = getattr(msg, 'name', None)

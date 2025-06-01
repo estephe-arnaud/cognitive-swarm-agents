@@ -20,6 +20,8 @@ langchain-core
 langchain-openai
 langchain-community
 langchain # Main LangChain package
+langchain-ollama # For Ollama integration
+langchain-huggingface
 langgraph
 
 # --- LlamaIndex Family ---

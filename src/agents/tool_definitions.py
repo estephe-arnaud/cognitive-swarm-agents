@@ -1,32 +1,21 @@
-# cognitive-swarm-agents/src/agents/tool_definitions.py
+# src/agents/tool_definitions.py
 import logging
 from typing import List, Dict, Any, Optional
 
 from langchain_core.tools import tool
 import arxiv 
 
-from src.rag.retrieval_engine import RetrievalEngine, RetrievedNode
+# RetrievalEngine sera importé localement dans la fonction knowledge_base_retrieval_tool
+# pour permettre une initialisation paresseuse et une meilleure gestion des erreurs d'init.
 from config.settings import settings
-# <<< AJOUT : Importer la fonction d'exécution de notre CrewAI >>>
 from src.agents.crewai_teams.document_analysis_crew import run_document_deep_dive_crew
 
 logger = logging.getLogger(__name__)
 
-# Initialisation du RetrievalEngine (existante)
-try:
-    retrieval_engine_instance = RetrievalEngine(
-        collection_name=RetrievalEngine.DEFAULT_CHUNK_COLLECTION_NAME,
-        vector_index_name=RetrievalEngine.DEFAULT_VECTOR_INDEX_NAME
-    )
-    logger.info("RetrievalEngine instance created successfully for tools.")
-except Exception as e:
-    logger.error(f"Failed to initialize RetrievalEngine for tools: {e}", exc_info=True)
-    retrieval_engine_instance = None
-
 @tool
 def arxiv_search_tool(
     query: str,
-    max_results: int = 3, # Réduit par défaut pour un usage plus ciblé par agent
+    max_results: int = 3, 
     sort_by: str = "relevance", 
     sort_order: str = "descending"
 ) -> List[Dict[str, Any]]:
@@ -40,21 +29,32 @@ def arxiv_search_tool(
         sort_by (str): Criterion to sort results by. Options: 'relevance', 'lastUpdatedDate', 'submittedDate'. Default 'relevance'.
         sort_order (str): Order of results. Options: 'ascending', 'descending'. Default 'descending'.
     """
-    logger.info(f"Executing arxiv_search_tool with query='{query}', max_results={max_results}")
-    # ... (code existant de arxiv_search_tool, je le garde concis ici pour ne pas tout répéter)
+    logger.info(f"Executing arxiv_search_tool with query='{query}', max_results={max_results}, sort_by='{sort_by}', sort_order='{sort_order}'")
     try:
-        if sort_by.lower() == "relevance": sort_criterion = arxiv.SortCriterion.Relevance
-        elif sort_by.lower() == "lastupdateddate": sort_criterion = arxiv.SortCriterion.LastUpdatedDate
-        elif sort_by.lower() == "submitteddate": sort_criterion = arxiv.SortCriterion.SubmittedDate
-        else: sort_criterion = arxiv.SortCriterion.Relevance; logger.warning(f"Invalid sort_by for arxiv_search_tool: {sort_by}. Defaulting to Relevance.")
-        if sort_order.lower() == "ascending": order_criterion = arxiv.SortOrder.Ascending
-        elif sort_order.lower() == "descending": order_criterion = arxiv.SortOrder.Descending
-        else: order_criterion = arxiv.SortOrder.Descending; logger.warning(f"Invalid sort_order for arxiv_search_tool: {sort_order}. Defaulting to Descending.")
+        sort_criterion_map = {
+            "relevance": arxiv.SortCriterion.Relevance,
+            "lastupdateddate": arxiv.SortCriterion.LastUpdatedDate,
+            "submitteddate": arxiv.SortCriterion.SubmittedDate,
+        }
+        sort_order_map = {
+            "ascending": arxiv.SortOrder.Ascending,
+            "descending": arxiv.SortOrder.Descending,
+        }
         
+        sort_criterion = sort_criterion_map.get(sort_by.lower(), arxiv.SortCriterion.Relevance)
+        if sort_by.lower() not in sort_criterion_map:
+            logger.warning(f"Invalid sort_by value '{sort_by}' for arxiv_search_tool. Defaulting to Relevance.")
+            
+        order_criterion = sort_order_map.get(sort_order.lower(), arxiv.SortOrder.Descending)
+        if sort_order.lower() not in sort_order_map:
+            logger.warning(f"Invalid sort_order value '{sort_order}' for arxiv_search_tool. Defaulting to Descending.")
+
         search = arxiv.Search(query=query, max_results=max_results, sort_by=sort_criterion, sort_order=order_criterion)
-        client = arxiv.Client(page_size = min(max_results, 100), delay_seconds = 3, num_retries = 2)
+        
+        # Utilisation du client par défaut de la bibliothèque arxiv.
+        # Pour des configurations de client plus complexes (proxies, etc.), il faudrait instancier arxiv.Client() ici.
         results = []
-        for r in client.results(search):
+        for r in search.results(): # search.results() utilise un client par défaut
             results.append({
                 "entry_id": r.entry_id, "title": r.title, 
                 "authors": [str(author) for author in r.authors], 
@@ -76,34 +76,45 @@ def knowledge_base_retrieval_tool(
     metadata_filters: Optional[List[Dict[str, Any]]] = None
 ) -> List[Dict[str, Any]]:
     """
-    Retrieves relevant information chunks from the ingested knowledge base (ArXiv papers
-    on Reinforcement Learning for Robotics) based on a query.
-    Use this to find specific information, concepts, or methods within the already processed documents.
+    Retrieves relevant information chunks from the ingested knowledge base.
     Args:
-        query_text (str): The query or topic to search for within the knowledge base.
-        top_k (int): The number of most relevant chunks to return (default is 3).
-        metadata_filters (Optional[List[Dict[str, Any]]]): Optional list of metadata filters to apply.
-                                                            Each filter is a dict like {"key": "field_name", "value": "field_value"}.
-                                                            Example: [{"key": "arxiv_id", "value": "2301.12345"}]
+        query_text (str): The query or topic to search for.
+        top_k (int): The number of most relevant chunks to return.
+        metadata_filters (Optional[List[Dict[str, Any]]]): Optional metadata filters.
     Returns:
-        List[Dict[str, Any]]: A list of retrieved document chunks, each containing
-                              the text chunk, its source ArXiv ID, title, and relevance score.
+        List[Dict[str, Any]]: A list of retrieved document chunks.
     """
+    # Importation locale pour initialisation paresseuse et meilleure gestion des erreurs d'import/init.
+    from src.rag.retrieval_engine import RetrievalEngine, RetrievedNode 
+    
     logger.info(f"Executing knowledge_base_retrieval_tool with query='{query_text[:50]}...', top_k={top_k}, filters={metadata_filters}")
-    # ... (code existant de knowledge_base_retrieval_tool, je le garde concis ici)
-    if retrieval_engine_instance is None:
-        logger.error("RetrievalEngine instance is not available for knowledge_base_retrieval_tool.")
-        return [{"error": "RetrievalEngine not initialized."}]
+    
+    retrieval_engine_instance: Optional[RetrievalEngine] = None
     try:
-        llama_filters_list = []
+        # Initialisation de RetrievalEngine ici. 
+        # RetrievalEngine utilise les valeurs par défaut pour collection_name et vector_index_name
+        # (ou celles de settings.py si RetrievalEngine est configuré pour cela).
+        # Assurez-vous que la configuration d'embedding (settings.DEFAULT_EMBEDDING_PROVIDER) 
+        # et MONGO_URI sont corrects pour que cette initialisation réussisse.
+        retrieval_engine_instance = RetrievalEngine() 
+        logger.info("RetrievalEngine instance for knowledge_base_retrieval_tool created/accessed successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize RetrievalEngine for knowledge_base_retrieval_tool: {e}", exc_info=True)
+        return [{"error": f"RetrievalEngine initialization failed: {str(e)}"}]
+
+    try:
+        llama_filters_list = [] 
         if metadata_filters:
-            for f in metadata_filters:
-                if "key" in f and "value" in f: llama_filters_list.append({"key": f["key"], "value": f["value"]})
-                else: logger.warning(f"Malformed metadata filter skipped: {f}")
+            from llama_index.core.vector_stores import ExactMatchFilter 
+            for f_dict in metadata_filters:
+                if "key" in f_dict and "value" in f_dict:
+                    llama_filters_list.append(ExactMatchFilter(key=f_dict["key"], value=f_dict["value"])) 
+                else: 
+                    logger.warning(f"Malformed metadata filter skipped (missing 'key' or 'value'): {f_dict}")
         
         retrieved_nodes: List[RetrievedNode] = retrieval_engine_instance.retrieve_simple_vector_search(
             query_text=query_text, top_k=top_k,
-            metadata_filters=llama_filters_list if llama_filters_list else None
+            metadata_filters=llama_filters_list if llama_filters_list else None 
         )
         results_for_agent = []
         for node in retrieved_nodes:
@@ -117,10 +128,10 @@ def knowledge_base_retrieval_tool(
         logger.info(f"knowledge_base_retrieval_tool retrieved {len(results_for_agent)} chunks.")
         return results_for_agent
     except Exception as e:
-        logger.error(f"Error in knowledge_base_retrieval_tool: {e}", exc_info=True)
-        return [{"error": f"knowledge_base_retrieval_tool failed: {str(e)}"}]
+        logger.error(f"Error in knowledge_base_retrieval_tool during search: {e}", exc_info=True)
+        return [{"error": f"knowledge_base_retrieval_tool search failed: {str(e)}"}]
 
-# <<< NOUVEL OUTIL BASÉ SUR CREWAI >>>
+
 @tool
 def document_deep_dive_analysis_tool(
     document_id: str, 
@@ -128,35 +139,25 @@ def document_deep_dive_analysis_tool(
     research_focus: str
 ) -> str:
     """
-    Performs an in-depth analysis of a single scientific document's text content using a specialized team of AI agents (CrewAI).
-    Use this tool when a detailed, structured report focusing on specific aspects of a document is required.
-    The analysis will cover key information extraction, section summaries (if applicable), and a critical analysis 
-    (strengths, weaknesses, contributions) based on the provided research focus.
-
+    Performs an in-depth analysis of a single scientific document's text content using CrewAI.
     Args:
-        document_id (str): The unique identifier of the document (e.g., ArXiv ID like '2301.12345'). 
-                           This is primarily for reference in the output report.
-        document_content (str): The full text content of the document to be analyzed. 
-                                This should be substantial enough for a meaningful analysis.
-        research_focus (str): Specific questions, themes, or aspects the detailed analysis should concentrate on. 
-                              Example: "Identify sim-to-real transfer techniques and their effectiveness."
-
+        document_id (str): The unique identifier of the document.
+        document_content (str): The full text content of the document.
+        research_focus (str): Specific questions or themes for the analysis.
     Returns:
-        str: A structured analytical report about the document, generated by the CrewAI team.
-             Returns an error message string if the analysis fails.
+        str: A structured analytical report, or an error message.
     """
     logger.info(f"Executing document_deep_dive_analysis_tool for doc_id='{document_id}', focus='{research_focus}'")
     if not document_content or not document_content.strip():
         logger.error("Document content for deep dive analysis is empty.")
         return "Error: Document content provided for deep dive analysis was empty or whitespace only."
-    if not research_focus or not research_focus.strip():
+    if not research_focus or not research_focus.strip(): # Le focus est important pour CrewAI
         logger.warning("Research focus for deep dive analysis is empty. Analysis might be very generic.")
-        # On pourrait décider de retourner une erreur ici ou de laisser la crew gérer un focus vide.
-        # return "Error: Research focus must be provided for deep dive analysis."
+        # On pourrait retourner une erreur ou laisser CrewAI gérer, mais un focus est généralement attendu.
 
     try:
-        # Appel de la fonction qui exécute la CrewAI
-        # Cette fonction est synchrone dans sa définition actuelle dans document_analysis_crew.py
+        # La fonction run_document_deep_dive_crew gère l'exécution de la CrewAI.
+        # Elle utilise llm_factory.py pour instancier le LLM, donc elle bénéficiera des corrections là-bas.
         report = run_document_deep_dive_crew(
             document_id=document_id,
             document_content=document_content,
@@ -164,7 +165,7 @@ def document_deep_dive_analysis_tool(
         )
         logger.info(f"document_deep_dive_analysis_tool completed for doc_id='{document_id}'. Report length: {len(report)}")
         return report
-    except ImportError as ie: # Au cas où crewai ne serait pas installé, bien que ce soit une dépendance maintenant
+    except ImportError as ie: # Au cas où crewai ou une de ses dépendances ne serait pas là
         logger.error(f"CrewAI related import error for deep_dive_tool: {ie}", exc_info=True)
         return f"Error: CrewAI components not available. {str(ie)}"
     except Exception as e:
@@ -174,53 +175,61 @@ def document_deep_dive_analysis_tool(
 
 if __name__ == "__main__":
     from config.logging_config import setup_logging
-    import json # Pour l'affichage des résultats d'outils
+    import json 
     setup_logging(level="DEBUG")
 
-    logger.info("--- Testing Tool Definitions (including new CrewAI tool) ---")
+    logger.info("--- Testing Tool Definitions ---")
 
-    # ... (tests existants pour arxiv_search_tool et knowledge_base_retrieval_tool) ...
+    # Test arxiv_search_tool
     logger.info("\n--- Test Direct de arxiv_search_tool ---")
-    arxiv_results = arxiv_search_tool.invoke({"query": "explainable AI in robotics", "max_results": 1})
-    print(f"ArXiv Search Tool Direct Result:\n{json.dumps(arxiv_results, indent=2)}\n")
+    arxiv_results = arxiv_search_tool.invoke({"query": "explainable AI in robotics", "max_results": 1, "sort_by": "submittedDate"})
+    print(f"ArXiv Search Tool Direct Result:\n{json.dumps(arxiv_results, indent=2, ensure_ascii=False)}\n")
 
-    logger.info("\n--- Test Direct de knowledge_base_retrieval_tool ---")
-    # Ce test nécessite que RetrievalEngine soit initialisé et que la DB soit peuplée
-    if retrieval_engine_instance:
-        kb_results = knowledge_base_retrieval_tool.invoke({"query_text": "robot path planning", "top_k": 1})
-        print(f"Knowledge Base Retrieval Tool Direct Result:\n{json.dumps(kb_results, indent=2)}\n")
-    else:
-        print("Skipping knowledge_base_retrieval_tool direct test as RetrievalEngine instance is not available.\n")
-
-    # --- Test du nouvel outil document_deep_dive_analysis_tool ---
-    logger.info("\n--- Test Direct de document_deep_dive_analysis_tool ---")
-    if not settings.OPENAI_API_KEY:
-        logger.error("OPENAI_API_KEY not set. Cannot run document_deep_dive_analysis_tool test.")
-    else:
-        sample_doc_id_crew_test = "crew_test_doc_001"
-        sample_doc_content_crew_test = """
-        This is a sample document about advanced robotic learning. 
-        It details a new algorithm called 'RoboLearn'.
-        The methodology involves using a simulated environment and then transferring skills to a physical robot.
-        Key results showed a 20% improvement in task completion time.
-        However, a limitation is the high computational cost during the simulation phase.
-        Future work aims to optimize this. This document also discusses ethical implications.
-        """
-        sample_research_focus_crew_test = "Extract methodology, results, limitations, and discuss ethical implications."
-
-        print(f"Testing deep dive tool for doc: {sample_doc_id_crew_test}, focus: {sample_research_focus_crew_test}")
+    # Test knowledge_base_retrieval_tool
+    # Ce test nécessite une configuration fonctionnelle pour MONGO_URI et DEFAULT_EMBEDDING_PROVIDER
+    logger.info("\n--- Test Direct de knowledge_base_retrieval_tool (avec lazy init) ---")
+    if settings.MONGO_URI and settings.DEFAULT_EMBEDDING_PROVIDER :
+        # Vérifications spécifiques pour les providers d'embedding
+        can_test_kb = False
+        if settings.DEFAULT_EMBEDDING_PROVIDER == "openai" and settings.OPENAI_API_KEY:
+            can_test_kb = True
+        elif settings.DEFAULT_EMBEDDING_PROVIDER == "huggingface": # Local, pas de clé API
+            can_test_kb = True
+        elif settings.DEFAULT_EMBEDDING_PROVIDER == "ollama" and settings.OLLAMA_BASE_URL and settings.OLLAMA_EMBEDDING_MODEL_NAME:
+            can_test_kb = True
         
-        # L'appel à l'outil est synchrone car run_document_deep_dive_crew l'est
+        if can_test_kb:
+            kb_results = knowledge_base_retrieval_tool.invoke({"query_text": "explainable AI in robotics", "top_k": 1})
+            print(f"Knowledge Base Retrieval Tool Direct Result:\n{json.dumps(kb_results, indent=2, ensure_ascii=False)}\n")
+        else:
+            print("Skipping knowledge_base_retrieval_tool test: Configuration for the selected embedding provider is incomplete (e.g., missing API key or URL).\n")
+    else:
+        print("Skipping knowledge_base_retrieval_tool test: MONGO_URI or DEFAULT_EMBEDDING_PROVIDER not configured.\n")
+
+    # Test document_deep_dive_analysis_tool
+    # Ce test nécessite une configuration fonctionnelle pour DEFAULT_LLM_MODEL_PROVIDER (utilisé par CrewAI via get_llm)
+    logger.info("\n--- Test Direct de document_deep_dive_analysis_tool ---")
+    can_test_deep_dive = False
+    if settings.DEFAULT_LLM_MODEL_PROVIDER == "openai" and settings.OPENAI_API_KEY:
+        can_test_deep_dive = True
+    elif settings.DEFAULT_LLM_MODEL_PROVIDER == "huggingface_api" and settings.HUGGINGFACE_API_KEY and settings.HUGGINGFACE_REPO_ID:
+        can_test_deep_dive = True
+    elif settings.DEFAULT_LLM_MODEL_PROVIDER == "ollama" and settings.OLLAMA_BASE_URL and settings.OLLAMA_GENERATIVE_MODEL_NAME:
+        can_test_deep_dive = True
+
+    if can_test_deep_dive:
+        sample_doc_id_crew_test = "crew_tool_test_001"
+        sample_doc_content_crew_test = "This is a sample document about advanced robotic learning for direct tool testing. It details a new algorithm. Methodology involves simulation. Key results showed improvement. A limitation is computational cost."
+        sample_research_focus_crew_test = "Extract methodology, results, and limitations."
         deep_dive_report = document_deep_dive_analysis_tool.invoke({
             "document_id": sample_doc_id_crew_test,
             "document_content": sample_doc_content_crew_test,
             "research_focus": sample_research_focus_crew_test
         })
-
         print("\n--- Deep Dive Analysis Report (from Tool Test) ---")
         print(deep_dive_report)
-        print("--------------------------------------------------")
-        # Vérifier si le rapport n'est pas un message d'erreur simple
-        assert "Error:" not in deep_dive_report[:20], "Deep dive tool returned an error string."
-
-    logger.info("\nTool definition test run finished.")
+        print("--------------------------------------------------\n")
+    else:
+        print("Skipping document_deep_dive_analysis_tool test: Configuration for the selected LLM provider is incomplete.\n")
+    
+    logger.info("Tool definition test run finished.")

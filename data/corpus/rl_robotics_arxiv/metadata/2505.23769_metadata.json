@@ -1,0 +1,27 @@
+{
+    "entry_id": "http://arxiv.org/abs/2505.23769v1",
+    "title": "TextRegion: Text-Aligned Region Tokens from Frozen Image-Text Models",
+    "authors": [
+        "Yao Xiao",
+        "Qiqian Fu",
+        "Heyi Tao",
+        "Yuqun Wu",
+        "Zhen Zhu",
+        "Derek Hoiem"
+    ],
+    "summary": "Image-text models excel at image-level tasks but struggle with detailed\nvisual understanding. While these models provide strong visual-language\nalignment, segmentation models like SAM2 offer precise spatial boundaries for\nobjects. To this end, we propose TextRegion, a simple, effective, and\ntraining-free framework that combines the strengths of image-text models and\nSAM2 to generate powerful text-aligned region tokens. These tokens enable\ndetailed visual understanding while preserving open-vocabulary capabilities.\nThey can be directly applied to various downstream tasks, including open-world\nsemantic segmentation, referring expression comprehension, and grounding. We\nconduct extensive evaluations and consistently achieve superior or competitive\nperformance compared to state-of-the-art training-free methods. Additionally,\nour framework is compatible with many image-text models, making it highly\npractical and easily extensible as stronger models emerge. Code is available\nat: https://github.com/avaxiao/TextRegion.",
+    "comment": "Code is available at: https://github.com/avaxiao/TextRegion",
+    "journal_ref": null,
+    "doi": null,
+    "primary_category": "cs.CV",
+    "categories": [
+        "cs.CV"
+    ],
+    "links": [
+        "http://arxiv.org/abs/2505.23769v1",
+        "http://arxiv.org/pdf/2505.23769v1"
+    ],
+    "pdf_url": "http://arxiv.org/pdf/2505.23769v1",
+    "published": "2025-05-29T17:59:59+00:00",
+    "updated": "2025-05-29T17:59:59+00:00"
+}

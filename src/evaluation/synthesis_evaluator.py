@@ -1,15 +1,14 @@
-# cognitive-swarm-agents/src/evaluation/synthesis_evaluator.py
+# src/evaluation/synthesis_evaluator.py
 import logging
 from typing import List, Dict, Any, Optional, TypedDict
 
-from langchain_core.language_models import BaseLanguageModel # MODIFIÉ: Import générique
+from langchain_core.language_models import BaseLanguageModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
-# ChatOpenAI n'est plus directement importé ici si get_llm le gère
 
 from config.settings import settings
-# MODIFIÉ: Importer notre fonction get_llm centralisée
-from src.agents.agent_architectures import get_llm, DEFAULT_LLM_TEMPERATURE
+# MODIFICATION: Mettre à jour l'import pour get_llm et DEFAULT_LLM_TEMPERATURE
+from src.llm_services.llm_factory import get_llm, DEFAULT_LLM_TEMPERATURE
 
 logger = logging.getLogger(__name__)
 
@@ -78,24 +77,23 @@ La fidélité mesure si les affirmations faites dans la synthèse sont correctem
 class SynthesisEvaluator:
     def __init__(
         self,
-        judge_llm_provider: Optional[str] = None, # Peut être surchargé, sinon utilise settings.DEFAULT_LLM_MODEL_PROVIDER
+        judge_llm_provider: Optional[str] = None,
         judge_llm_model_name: Optional[str] = None,
-        judge_llm_temperature: float = DEFAULT_LLM_TEMPERATURE # Juge plus déterministe
+        # Utilise DEFAULT_LLM_TEMPERATURE importé depuis llm_factory
+        judge_llm_temperature: float = DEFAULT_LLM_TEMPERATURE
     ):
-        # Si judge_llm_provider n'est pas spécifié, il sera pris de settings par get_llm
         self.judge_llm_provider_init = judge_llm_provider
         self.judge_llm_model_name_init = judge_llm_model_name
         self.judge_llm_temperature = judge_llm_temperature
-        self.judge_llm: BaseLanguageModel = self._get_judge_llm() # MODIFIÉ: Type hint
+        self.judge_llm: BaseLanguageModel = self._get_judge_llm()
         logger.info(f"SynthesisEvaluator initialized with judge LLM type: {type(self.judge_llm)}")
 
-    def _get_judge_llm(self) -> BaseLanguageModel: # MODIFIÉ: Type de retour
+    def _get_judge_llm(self) -> BaseLanguageModel:
         """
         Récupère l'instance du LLM juge en utilisant la fonction get_llm centralisée.
         """
         try:
-            # Utilise les overrides si fournis lors de l'init de SynthesisEvaluator,
-            # sinon get_llm utilisera les défauts de settings.py
+            # Utilise get_llm importé depuis llm_factory
             return get_llm(
                 temperature=self.judge_llm_temperature,
                 model_provider_override=self.judge_llm_provider_init,
@@ -103,7 +101,7 @@ class SynthesisEvaluator:
             )
         except ValueError as e:
             logger.error(f"Failed to initialize Judge LLM for SynthesisEvaluator: {e}")
-            raise # Relance l'erreur si le LLM ne peut être initialisé
+            raise
 
     async def _evaluate_aspect(
         self,
@@ -112,7 +110,7 @@ class SynthesisEvaluator:
         synthesis: str,
         context: Optional[str] = None
     ) -> Optional[EvaluationAspectScore]:
-        if not self.judge_llm: # Devrait être initialisé dans __init__
+        if not self.judge_llm:
             logger.error("Judge LLM not initialized for aspect evaluation.")
             return None
 
@@ -124,21 +122,13 @@ class SynthesisEvaluator:
             prompt_inputs["context"] = context
 
         eval_prompt = ChatPromptTemplate.from_template(prompt_template_str)
-
-        # Gestion du mode JSON:
-        # Certains modèles (comme ceux d'OpenAI via ChatOpenAI, ou Ollama avec certains modèles)
-        # supportent un mode de réponse JSON forcé.
-        # Pour HuggingFaceHub, cela dépend du modèle sous-jacent et de l'API.
-        # Si le mode JSON n'est pas supporté nativement, le LLM doit être très bien prompté,
-        # et le parsing peut être moins fiable.
+        
         current_provider = self.judge_llm_provider_init or settings.DEFAULT_LLM_MODEL_PROVIDER
         supports_json_mode = False
         if current_provider.lower() == "openai":
-            supports_json_mode = True # Les modèles OpenAI récents le supportent bien
+            supports_json_mode = True
         elif current_provider.lower() == "ollama":
-            # Certains modèles Ollama le supportent, il faut vérifier la doc du modèle spécifique
-            # On peut supposer que oui pour l'instant, ou ajouter une vérification plus fine
-            supports_json_mode = True # Supposition optimiste
+            supports_json_mode = True 
 
         if hasattr(self.judge_llm, 'bind') and supports_json_mode:
             try:
@@ -150,7 +140,6 @@ class SynthesisEvaluator:
                 logger.debug(f"JSON mode response for aspect: {response_dict}")
             except Exception as e_json_bind:
                 logger.warning(f"Failed to use JSON mode with LLM {type(self.judge_llm)} (provider: {current_provider}), possibly not supported or model error: {e_json_bind}. Falling back to standard parsing.")
-                # Fallback: chaîne standard + JsonOutputParser sans mode JSON forcé
                 chain = eval_prompt | self.judge_llm | JsonOutputParser()
                 response_dict = await chain.ainvoke(prompt_inputs)
         else:
@@ -219,26 +208,31 @@ class SynthesisEvaluator:
 
 if __name__ == "__main__":
     import asyncio
-    from config.logging_config import setup_logging
+    from config.logging_config import setup_logging # Uniquement pour le test direct
 
     setup_logging(level="DEBUG")
-    logger.info("--- Starting Synthesis Evaluator Test Run ---")
+    logger.info("--- Starting Synthesis Evaluator Test Run (with llm_factory) ---")
+    
+    # Ce test dépend de la configuration correcte du LLM juge via settings et llm_factory
+    can_run_eval_test = False
+    try:
+        # Tentative d'instanciation pour vérifier si get_llm fonctionne avec la config actuelle
+        # SynthesisEvaluator() fait cela dans son __init__
+        temp_evaluator = SynthesisEvaluator()
+        logger.info(f"Test evaluator initialized with judge LLM: {type(temp_evaluator.judge_llm)}")
+        can_run_eval_test = True
+    except ValueError as ve:
+        logger.error(f"Cannot run SynthesisEvaluator test: Failed to initialize judge LLM via llm_factory. Error: {ve}")
+    except Exception as e_init:
+        logger.error(f"Unexpected error initializing SynthesisEvaluator for test: {e_init}", exc_info=True)
 
-    # Test avec le provider par défaut (huggingface_api maintenant)
-    # Assurez-vous que HUGGINGFACE_API_KEY et HUGGINGFACE_REPO_ID sont configurés dans .env
-    # ou que Ollama est configuré et en cours d'exécution si c'est votre défaut.
 
-    if (settings.DEFAULT_LLM_MODEL_PROVIDER == "openai" and not settings.OPENAI_API_KEY) or \
-       (settings.DEFAULT_LLM_MODEL_PROVIDER == "huggingface_api" and not settings.HUGGINGFACE_API_KEY) or \
-       (settings.DEFAULT_LLM_MODEL_PROVIDER == "ollama" and (not settings.OLLAMA_BASE_URL or not settings.OLLAMA_MODEL_NAME)):
-        logger.error(f"Required API key or configuration for default provider '{settings.DEFAULT_LLM_MODEL_PROVIDER}' not set. Synthesis Evaluator test run will fail.")
-    else:
+    if can_run_eval_test:
         evaluator = SynthesisEvaluator(
             # judge_llm_model_name="gpt-4o" # Peut être surchargé ici pour tester un juge spécifique
-            # judge_llm_provider="openai" # Pour forcer OpenAI si le défaut est autre chose
+            # judge_llm_provider="openai" # Pour forcer un provider
         )
-        logger.info(f"Evaluator using judge LLM: {type(evaluator.judge_llm)}")
-
+        logger.info(f"Evaluator for test run using judge LLM: {type(evaluator.judge_llm)}")
 
         test_query = "What are the key benefits of using reinforcement learning in robotics, and what are some notable challenges?"
         test_context_for_synthesis = """
@@ -263,11 +257,11 @@ if __name__ == "__main__":
         Recent research, like that in ArXiv:123.456, addresses safe exploration.
         """
 
-        async def run_evaluations_test():
+        async def run_evaluations_test_main(): # Renommé pour éviter conflit avec la fonction du notebook
             logger.info("\n--- Evaluating Good Synthesis (Judge LLM may take time) ---")
             results_good = await evaluator.evaluate_synthesis(test_query, good_synthesis, test_context_for_synthesis)
             evaluator.print_results(results_good, test_query)
 
-        asyncio.run(run_evaluations_test())
+        asyncio.run(run_evaluations_test_main())
 
     logger.info("--- Synthesis Evaluator Test Run Finished ---")
