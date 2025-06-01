@@ -1,0 +1,53 @@
+# cognitive-swarm-agents/.dockerignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE & OS specific
+.vscode/
+.idea/
+*.DS_Store
+*.Spotlight-V100
+*.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Conda specific (if not building a conda-based image)
+# pkgs/
+# envs/
+# .conda/
+
+# Local data (mount as volume if needed at runtime)
+# data/corpus/
+# data/evaluation/
+# data/processed/
+# data/logs/ # Si vous avez des logs en fichiers
+
+# Notebooks (usually not needed in production image)
+notebooks/
+
+# Local instance specific
+.env
+*.env.local
+*.env.*.local
+*.log
+*.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+package-lock.json
+yarn.lock

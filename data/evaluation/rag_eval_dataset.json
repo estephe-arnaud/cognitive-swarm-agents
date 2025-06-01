@@ -1,0 +1,31 @@
+[
+  {
+    "query_id": "rag_query_001",
+    "query_text": "What are the latest advancements in sim-to-real transfer for robotic manipulation using reinforcement learning?",
+    "expected_relevant_chunk_ids": [
+      "arxiv_id_paperA_chunk_003",
+      "arxiv_id_paperB_chunk_001",
+      "arxiv_id_paperA_chunk_002"
+    ]
+  },
+  {
+    "query_id": "rag_query_002",
+    "query_text": "How can safety be ensured when training robot policies with deep RL?",
+    "expected_relevant_chunk_ids": [
+      "arxiv_id_paperC_chunk_005"
+    ]
+  },
+  {
+    "query_id": "rag_query_003",
+    "query_text": "Common exploration strategies in multi-agent reinforcement learning for robotics.",
+    "expected_relevant_chunk_ids": []
+  },
+  {
+    "query_id": "rag_query_004",
+    "query_text": "Explain the use of transformers in robot task planning.",
+    "expected_relevant_chunk_ids": [
+      "arxiv_id_paperD_chunk_001",
+      "arxiv_id_paperE_chunk_004"
+    ]
+  }
+]
