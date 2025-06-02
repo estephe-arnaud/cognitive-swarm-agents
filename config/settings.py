@@ -26,11 +26,14 @@ class Settings(BaseSettings):
 
     # Hugging Face API Configuration (pour l'API d'inférence des modèles génératifs)
     HUGGINGFACE_API_KEY: Optional[str] = None
-    HUGGINGFACE_REPO_ID: Optional[str] = "mistralai/Mixtral-8x7B-Instruct-v0.1" # Pour les modèles génératifs
+    # MODIFICATION: Peut être laissé tel quel ou mis à None si Ollama est le vrai défaut.
+    # Pour l'instant, on le laisse, car un utilisateur pourrait surcharger pour utiliser HF API.
+    HUGGINGFACE_REPO_ID: Optional[str] = "mistralai/Mixtral-8x7B-Instruct-v0.1" 
 
     # Ollama Configuration (pour modèles génératifs ET embeddings servis localement)
-    OLLAMA_BASE_URL: Optional[str] = "http://localhost:11434" # Utilisé pour les LLMs génératifs et les embeddings Ollama
-    OLLAMA_GENERATIVE_MODEL_NAME: Optional[str] = "mistral" # Modèle génératif par défaut via Ollama
+    OLLAMA_BASE_URL: Optional[str] = "http://localhost:11434" 
+    # MODIFICATION: Valeur par défaut pour le modèle génératif Ollama
+    OLLAMA_GENERATIVE_MODEL_NAME: Optional[str] = "mistral" 
 
     # Tool/Service API Keys
     TAVILY_API_KEY: Optional[str] = None
@@ -46,29 +49,29 @@ class Settings(BaseSettings):
     LANGGRAPH_CHECKPOINTS_COLLECTION: str = "langgraph_checkpoints"
 
     # --- Configuration des Modèles Génératifs par Défaut ---
-    # Options pour DEFAULT_LLM_MODEL_PROVIDER: "openai", "huggingface_api", "ollama"
-    DEFAULT_LLM_MODEL_PROVIDER: str = "huggingface_api"
-    DEFAULT_OPENAI_GENERATIVE_MODEL: str = "gpt-4o" # Utilisé si DEFAULT_LLM_MODEL_PROVIDER="openai"
-    # HUGGINGFACE_REPO_ID est utilisé pour le provider "huggingface_api"
-    # OLLAMA_GENERATIVE_MODEL_NAME est utilisé pour le provider "ollama"
+    # MODIFICATION: Ollama devient le fournisseur par défaut
+    DEFAULT_LLM_MODEL_PROVIDER: str = "ollama" 
+    DEFAULT_OPENAI_GENERATIVE_MODEL: str = "gpt-4o" 
+    # HUGGINGFACE_REPO_ID est utilisé si provider="huggingface_api"
+    # OLLAMA_GENERATIVE_MODEL_NAME est utilisé si provider="ollama" (défini ci-dessus)
 
-    # --- Configuration des Modèles d'Embedding (MODIFIÉE POUR INCLURE OLLAMA) ---
-    # Options pour DEFAULT_EMBEDDING_PROVIDER: "openai", "huggingface", "ollama"
-    DEFAULT_EMBEDDING_PROVIDER: str = "huggingface"  # Par défaut sur open source (HuggingFace)
+    # --- Configuration des Modèles d'Embedding ---
+    # MODIFICATION: Ollama devient le fournisseur d'embedding par défaut
+    DEFAULT_EMBEDDING_PROVIDER: str = "ollama"  
 
     # Configuration pour les embeddings OpenAI
     OPENAI_EMBEDDING_MODEL_NAME: str = "text-embedding-3-small"
-    OPENAI_EMBEDDING_DIMENSION: int = 1536 # Dimension native de text-embedding-3-small
+    OPENAI_EMBEDDING_DIMENSION: int = 1536 
 
     # Configuration pour les embeddings Hugging Face (via SentenceTransformers)
     HUGGINGFACE_EMBEDDING_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
-    HUGGINGFACE_EMBEDDING_MODEL_DIMENSION: int = 384 # Dimension de all-MiniLM-L6-v2
+    HUGGINGFACE_EMBEDDING_MODEL_DIMENSION: int = 384 
 
     # Configuration pour les embeddings Ollama
-    # `nomic-embed-text` est un exemple populaire, assurez-vous qu'il est servi par votre instance Ollama.
-    # D'autres modèles comme `mxbai-embed-large` ou même des modèles généralistes peuvent être utilisés.
-    OLLAMA_EMBEDDING_MODEL_NAME: str = "nomic-embed-text"
-    OLLAMA_EMBEDDING_MODEL_DIMENSION: int = 768 # Dimension de nomic-embed-text par défaut
+    # MODIFICATION: Valeur par défaut pour le modèle d'embedding Ollama
+    OLLAMA_EMBEDDING_MODEL_NAME: str = "nomic-embed-text" 
+    OLLAMA_EMBEDDING_MODEL_DIMENSION: int = 768 # Dimension pour nomic-embed-text par défaut
+    # OLLAMA_BASE_URL est partagé (défini plus haut)
 
     # --- Data Processing Configuration ---
     CHUNK_SIZE: int = 1000
@@ -76,7 +79,7 @@ class Settings(BaseSettings):
 
     # ArXiv Specific Configuration & Data Directory
     DATA_DIR: Path = Path(__file__).resolve().parent.parent / "data"
-    ARXIV_DEFAULT_QUERY: str = "Reinforcement Learning for Robotics"
+    ARXIV_DEFAULT_QUERY: str = "Reinforcement Learning for Robotics" # Peut aussi être généralisé si besoin
     ARXIV_MAX_RESULTS: int = 10
     ARXIV_SORT_BY: str = "submittedDate"
     ARXIV_SORT_ORDER: str = "descending"
@@ -104,7 +107,7 @@ if __name__ == "__main__":
     print(f"Default Generative LLM Provider: {settings.DEFAULT_LLM_MODEL_PROVIDER}")
     print(f"  OpenAI Model (if provider is openai): {settings.DEFAULT_OPENAI_GENERATIVE_MODEL}")
     print(f"  HuggingFace Repo ID (if provider is huggingface_api): {settings.HUGGINGFACE_REPO_ID}")
-    print(f"  Ollama Generative Model Name (if provider is ollama): {settings.OLLAMA_GENERATIVE_MODEL_NAME}")
+    print(f"  Ollama Generative Model Name (is provider is ollama or default): {settings.OLLAMA_GENERATIVE_MODEL_NAME}") # Modifié pour refléter
     print(f"  Ollama Base URL (for generative and embeddings): {settings.OLLAMA_BASE_URL}")
 
 
@@ -114,7 +117,7 @@ if __name__ == "__main__":
     print(f"  OpenAI Embedding Dimension: {settings.OPENAI_EMBEDDING_DIMENSION}")
     print(f"  HuggingFace Embedding Model: {settings.HUGGINGFACE_EMBEDDING_MODEL_NAME}")
     print(f"  HuggingFace Embedding Dimension: {settings.HUGGINGFACE_EMBEDDING_MODEL_DIMENSION}")
-    print(f"  Ollama Embedding Model Name: {settings.OLLAMA_EMBEDDING_MODEL_NAME}")
+    print(f"  Ollama Embedding Model Name (if provider is ollama or default): {settings.OLLAMA_EMBEDDING_MODEL_NAME}") # Modifié pour refléter
     print(f"  Ollama Embedding Model Dimension: {settings.OLLAMA_EMBEDDING_MODEL_DIMENSION}")
 
 
