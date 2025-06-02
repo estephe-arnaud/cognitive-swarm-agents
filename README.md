@@ -41,7 +41,7 @@ This project serves as a portfolio piece demonstrating expertise in Generative A
 * **Containerization**: `Dockerfile` provided for building a portable application image.
 * **API Layer (Basic)**: A FastAPI application (`src/api/main.py`) providing an endpoint to interact with the Cognitive Swarm.
 
-##  архитектура (Architecture)
+##  Architecture
 
 ### 🛠️ Tech Stack & Architecture
 
