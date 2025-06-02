@@ -42,8 +42,8 @@ async def startup_event():
     # Vérifier les dépendances critiques au démarrage, ex: clés API
     if not settings.OPENAI_API_KEY:
         logger.error("CRITICAL: OPENAI_API_KEY not configured. Swarm functionality will be impaired.")
-    if not settings.MONGO_URI:
-        logger.error("CRITICAL: MONGO_URI not configured. Swarm checkpointing and RAG will be impaired.")
+    if not settings.MONGODB_URI:
+        logger.error("CRITICAL: MONGODB_URI not configured. Swarm checkpointing and RAG will be impaired.")
     # On pourrait ajouter un ping à MongoDB ici si MongoDBManager est utilisé par le workflow au démarrage
     # (actuellement, il est initialisé dans main_workflow au moment de la compilation du graphe).
 

@@ -1,4 +1,4 @@
-# cognitive-swarm-agents/src/data_processing/embedder.py
+# src/data_processing/embedder.py
 import logging
 from typing import List, Dict, Optional, TypedDict, Any
 import time
@@ -7,28 +7,17 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.embeddings import HuggingFaceEmbeddings, OllamaEmbeddings
 
 from config.settings import settings
+# Importer ProcessedChunk depuis preprocessor.py pour utiliser la nouvelle structure
+from src.data_processing.preprocessor import ProcessedChunk 
 
 logger = logging.getLogger(__name__)
 
-# Define ProcessedChunk and ProcessedChunkWithEmbedding structures for clarity
-class ProcessedChunk(TypedDict): # Duplicating from preprocessor for standalone clarity if needed
-    chunk_id: str
-    arxiv_id: str
-    text_chunk: str
-    original_document_title: Optional[str]
-    # Ajout possible : metadata: Dict[str, Any] pour hériter des métadonnées du document d'origine
+# La typé ProcessedChunkWithEmbedding n'est plus utilisée directement pour la sortie de cette fonction,
+# car la structure change pour inclure un champ 'metadata' imbriqué.
+# La fonction retournera List[Dict[str, Any]]
 
-class ProcessedChunkWithEmbedding(ProcessedChunk):
-    embedding: List[float]
-    embedding_model: str # Store which model was used (e.g., "text-embedding-3-small" or "sentence-transformers/all-MiniLM-L6-v2")
-    embedding_provider: str # Store which provider was used (e.g., "openai", "huggingface", "ollama")
-    embedding_dimension: int # Store the actual dimension of the embedding
-
-def get_embedding_client() -> Any: # LangChain's Embeddings classes are diverse, using Any for simplicity here
-    """
-    Initializes and returns an embedding client based on global settings.
-    Supports OpenAI, HuggingFace (SentenceTransformers), and Ollama.
-    """
+def get_embedding_client() -> Any: 
+    # ... (fonction inchangée) ...
     provider = settings.DEFAULT_EMBEDDING_PROVIDER.lower()
     logger.info(f"Initializing embedding client for provider: {provider}")
 
@@ -38,10 +27,7 @@ def get_embedding_client() -> Any: # LangChain's Embeddings classes are diverse,
             raise ValueError("OpenAI API key is missing for OpenAI embeddings.")
         
         model_kwargs = {}
-        # Pour les modèles OpenAI supportant la paramétrisation de la dimension
         if settings.OPENAI_EMBEDDING_MODEL_NAME in ["text-embedding-3-small", "text-embedding-3-large"]:
-            # text-embedding-3-small default = 1536, text-embedding-3-large default = 3072
-            # On ne passe "dimensions" que si on veut une dimension plus petite que le max natif du modèle
             native_max_dim = 1536 if settings.OPENAI_EMBEDDING_MODEL_NAME == "text-embedding-3-small" else 3072
             if settings.OPENAI_EMBEDDING_DIMENSION < native_max_dim:
                 model_kwargs["dimensions"] = settings.OPENAI_EMBEDDING_DIMENSION
@@ -53,14 +39,9 @@ def get_embedding_client() -> Any: # LangChain's Embeddings classes are diverse,
             **model_kwargs
         )
     elif provider == "huggingface":
-        # Utilise typiquement sentence-transformers.
-        # HUGGINGFACE_API_KEY n'est généralement pas nécessaire pour les embeddings HuggingFace locaux/SentenceTransformers.
-        # Il serait nécessaire si on utilisait une API d'embedding HuggingFace spécifique.
         logger.info(f"Using HuggingFaceEmbeddings with model: {settings.HUGGINGFACE_EMBEDDING_MODEL_NAME}")
         return HuggingFaceEmbeddings(
             model_name=settings.HUGGINGFACE_EMBEDDING_MODEL_NAME,
-            # model_kwargs={'device': 'cuda'} # Optionnel: pour forcer l'utilisation du GPU si disponible
-            # cache_folder: str = "./embedding_models_cache" # Optionnel: pour spécifier un dossier de cache
         )
     elif provider == "ollama":
         if not settings.OLLAMA_BASE_URL:
@@ -76,12 +57,9 @@ def get_embedding_client() -> Any: # LangChain's Embeddings classes are diverse,
         raise ValueError(f"Unsupported embedding provider: {provider}")
 
 def generate_embeddings_for_chunks(
-    processed_chunks: List[ProcessedChunk],
+    processed_chunks: List[ProcessedChunk], # Utilise ProcessedChunk mis à jour
     batch_size: int = 32 
-) -> List[ProcessedChunkWithEmbedding]:
-    """
-    Generates embeddings for a list of processed text chunks.
-    """
+) -> List[Dict[str, Any]]: # Le type de retour est maintenant List[Dict[str, Any]]
     if not processed_chunks:
         logger.warning("No processed chunks provided for embedding.")
         return []
@@ -90,26 +68,22 @@ def generate_embeddings_for_chunks(
     
     embedding_client = get_embedding_client()
     texts_to_embed: List[str] = [chunk["text_chunk"] for chunk in processed_chunks]
-    embedded_chunks: List[ProcessedChunkWithEmbedding] = []
+    # MODIFICATION: La liste retournée sera de dictionnaires génériques
+    final_chunks_for_db: List[Dict[str, Any]] = [] 
     
-    # Déterminer le nom du modèle et la dimension en fonction du fournisseur
     current_embedding_provider = settings.DEFAULT_EMBEDDING_PROVIDER.lower()
     actual_model_name = ""
-    actual_dimension = 0
+    # actual_dimension n'est plus nécessaire ici car on stocke len(embedding_vector)
 
     if current_embedding_provider == "openai":
         actual_model_name = settings.OPENAI_EMBEDDING_MODEL_NAME
-        actual_dimension = settings.OPENAI_EMBEDDING_DIMENSION
     elif current_embedding_provider == "huggingface":
         actual_model_name = settings.HUGGINGFACE_EMBEDDING_MODEL_NAME
-        actual_dimension = settings.HUGGINGFACE_EMBEDDING_MODEL_DIMENSION
     elif current_embedding_provider == "ollama":
         actual_model_name = settings.OLLAMA_EMBEDDING_MODEL_NAME
-        actual_dimension = settings.OLLAMA_EMBEDDING_MODEL_DIMENSION
-    else: # Devrait être attrapé par get_embedding_client mais par sécurité
+    else: 
         logger.error(f"Unknown embedding provider '{current_embedding_provider}' in generate_embeddings_for_chunks.")
         return []
-
 
     for i in range(0, len(texts_to_embed), batch_size):
         batch_texts = texts_to_embed[i:i + batch_size]
@@ -125,109 +99,98 @@ def generate_embeddings_for_chunks(
                 continue
 
             for original_chunk, embedding_vector in zip(batch_original_chunks, embeddings):
-                # Vérifier la dimension réelle de l'embedding retourné si possible/nécessaire, 
-                # surtout si le `actual_dimension` est juste une config et pas une garantie
-                if embedding_vector and len(embedding_vector) != actual_dimension:
-                    logger.warning(f"Embedding for chunk {original_chunk['chunk_id']} has dimension {len(embedding_vector)}, "
-                                   f"but settings indicate {actual_dimension} for provider {current_embedding_provider} "
-                                   f"with model {actual_model_name}. Using actual returned dimension.")
-                    # On pourrait décider de stocker la dimension réelle retournée si elle diffère.
-                    # Pour l'instant, on logue un avertissement et on stocke la dimension de la config.
-                    # Il serait plus robuste de stocker len(embedding_vector).
-                    
-                chunk_with_embedding: ProcessedChunkWithEmbedding = {
-                    **original_chunk, # type: ignore
-                    "embedding": embedding_vector,
+                # MODIFICATION: Construire la structure du document avec un champ 'metadata' imbriqué
+                metadata_sub_document: Dict[str, Any] = {
+                    "chunk_id": original_chunk['chunk_id'], # Peut être utile de le garder dans les métadonnées aussi
+                    "arxiv_id": original_chunk['arxiv_id'],
+                    "original_document_title": original_chunk.get('original_document_title'),
                     "embedding_model": actual_model_name,
                     "embedding_provider": current_embedding_provider,
-                    "embedding_dimension": len(embedding_vector) if embedding_vector else 0 # Stocker la dimension réelle
+                    "embedding_dimension": len(embedding_vector) if embedding_vector else 0
                 }
-                embedded_chunks.append(chunk_with_embedding)
+                
+                # Ajouter les métadonnées de la source originale (si elles existent)
+                # au dictionnaire de métadonnées
+                source_meta = original_chunk.get("source_document_metadata")
+                if source_meta and isinstance(source_meta, dict):
+                    # On peut choisir d'ajouter toutes les clés ou seulement certaines
+                    # Ici, on ajoute celles qui ne sont pas déjà explicitement gérées
+                    # pour éviter les écrasements, ou on fusionne intelligemment.
+                    # Pour la simplicité, on fusionne, en donnant la priorité aux clés déjà définies.
+                    for key, value in source_meta.items():
+                        if key not in metadata_sub_document: # Évite d'écraser 'title' si 'original_document_title' est déjà là
+                            metadata_sub_document[key] = value
+                        elif key == "title" and "original_document_title" not in metadata_sub_document: # Cas spécifique pour le titre
+                             metadata_sub_document["original_document_title"] = value
+
+
+                chunk_for_db = {
+                    "chunk_id": original_chunk['chunk_id'], # Utilisé pour _id dans MongoDB
+                    "text_chunk": original_chunk['text_chunk'],
+                    "embedding": embedding_vector,
+                    "metadata": metadata_sub_document # Le dictionnaire de métadonnées imbriqué
+                }
+                final_chunks_for_db.append(chunk_for_db)
 
         except Exception as e:
             logger.error(f"Error embedding batch {i//batch_size + 1} with {current_embedding_provider}: {e}", exc_info=True)
         
-    logger.info(f"Finished embedding generation. Successfully embedded {len(embedded_chunks)} chunks out of {len(processed_chunks)}.")
-    return embedded_chunks
+    logger.info(f"Finished embedding generation. Successfully structured {len(final_chunks_for_db)} chunks for DB out of {len(processed_chunks)}.")
+    return final_chunks_for_db
 
 
 if __name__ == "__main__":
+    # ... (Le bloc de test bénéficierait d'une mise à jour pour refléter la nouvelle structure de sortie) ...
     from config.logging_config import setup_logging
     setup_logging(level="INFO")
 
-    logger.info("--- Starting embedder.py test run ---")
+    logger.info("--- Starting embedder.py test run (with new metadata structure) ---")
 
-    sample_chunks: List[ProcessedChunk] = [
+    sample_processed_chunks: List[ProcessedChunk] = [
         {
             "chunk_id": "test001_chunk_001", "arxiv_id": "test001",
             "text_chunk": "This is the first chunk of text from document one. It discusses reinforcement learning.",
-            "original_document_title": "A Study of Interesting Things"
+            "original_document_title": "A Study of Interesting Things",
+            "source_document_metadata": {"title": "A Study of Interesting Things", "primary_category": "cs.AI", "authors": ["A. B."]}
         },
         {
             "chunk_id": "test001_chunk_002", "arxiv_id": "test001",
             "text_chunk": "The second chunk continues exploring concepts related to robotics and AI.",
-            "original_document_title": "A Study of Interesting Things"
+            "original_document_title": "A Study of Interesting Things", # Souvent le même pour les chunks du même doc
+            "source_document_metadata": {"title": "A Study of Interesting Things", "primary_category": "cs.AI", "authors": ["A. B."]}
         }
     ]
-
-    # Pour tester un fournisseur spécifique, vous pouvez surcharger temporairement settings
-    # ou configurer votre .env et settings.py en conséquence.
-    # Exemple: settings.DEFAULT_EMBEDDING_PROVIDER = "huggingface"
-    # Assurez-vous que les dépendances sont là (ex: sentence-transformers pour HuggingFaceEmbeddings)
-    # et que Ollama est configuré et actif si vous testez "ollama".
-
     provider_to_test = settings.DEFAULT_EMBEDDING_PROVIDER
     logger.info(f"Testing with embedding provider: {provider_to_test}")
 
-    # Vérifications de base pour les clés/configs nécessaires au provider testé
     can_run_test = False
+    # ... (logique de can_run_test inchangée) ...
     if provider_to_test == "openai":
-        if settings.OPENAI_API_KEY:
-            can_run_test = True
-        else:
-            logger.error("OPENAI_API_KEY not found. Skipping OpenAI embedding test.")
-    elif provider_to_test == "huggingface":
-        # HuggingFaceEmbeddings (local sentence-transformers) ne nécessite pas de clé API.
-        can_run_test = True
+        if settings.OPENAI_API_KEY: can_run_test = True
+        else: logger.error("OPENAI_API_KEY not found. Skipping OpenAI embedding test.")
+    elif provider_to_test == "huggingface": can_run_test = True
     elif provider_to_test == "ollama":
         if settings.OLLAMA_BASE_URL and settings.OLLAMA_EMBEDDING_MODEL_NAME:
-            # Idéalement, on pinguerait Ollama ici ou on vérifierait que le modèle est disponible.
             logger.info(f"Attempting Ollama test. Ensure Ollama is running at {settings.OLLAMA_BASE_URL} and model '{settings.OLLAMA_EMBEDDING_MODEL_NAME}' is pulled.")
             can_run_test = True
-        else:
-            logger.error("OLLAMA_BASE_URL or OLLAMA_EMBEDDING_MODEL_NAME not set. Skipping Ollama embedding test.")
+        else: logger.error("OLLAMA_BASE_URL or OLLAMA_EMBEDDING_MODEL_NAME not set. Skipping Ollama embedding test.")
     
     if can_run_test:
         try:
-            chunks_with_embeddings = generate_embeddings_for_chunks(sample_chunks, batch_size=2)
+            structured_chunks_for_db = generate_embeddings_for_chunks(sample_processed_chunks, batch_size=2)
 
-            if chunks_with_embeddings:
-                logger.info(f"Successfully generated embeddings for {len(chunks_with_embeddings)} chunks using '{provider_to_test}'.")
-                for i, chunk_data in enumerate(chunks_with_embeddings):
-                    logger.info(f"--- Chunk {i+1} ({chunk_data['chunk_id']}) ---")
+            if structured_chunks_for_db:
+                logger.info(f"Successfully generated structured data for {len(structured_chunks_for_db)} chunks using '{provider_to_test}'.")
+                for i, chunk_data in enumerate(structured_chunks_for_db):
+                    logger.info(f"--- Chunk {i+1} for DB ({chunk_data['chunk_id']}) ---")
                     logger.info(f"  Text: {chunk_data['text_chunk'][:50]}...")
-                    logger.info(f"  Embedding Provider: {chunk_data['embedding_provider']}")
-                    logger.info(f"  Embedding Model: {chunk_data['embedding_model']}")
-                    logger.info(f"  Embedding Dimension (actual): {chunk_data['embedding_dimension']}") # Affiche la dimension réelle
                     logger.info(f"  Embedding Vector (first 3 dims): {chunk_data['embedding'][:3]}...")
-                    
-                    # Vérification de la dimension attendue basée sur la configuration
-                    expected_dim = 0
-                    if chunk_data['embedding_provider'] == "openai":
-                        expected_dim = settings.OPENAI_EMBEDDING_DIMENSION
-                    elif chunk_data['embedding_provider'] == "huggingface":
-                        expected_dim = settings.HUGGINGFACE_EMBEDDING_MODEL_DIMENSION
-                    elif chunk_data['embedding_provider'] == "ollama":
-                        expected_dim = settings.OLLAMA_EMBEDDING_MODEL_DIMENSION
-                    
-                    if chunk_data['embedding_dimension'] != expected_dim:
-                        logger.warning(f"    Dimension mismatch for {chunk_data['chunk_id']}: "
-                                       f"Actual {chunk_data['embedding_dimension']} vs Configured {expected_dim}. "
-                                       f"This might be due to model capabilities or configuration.")
-                    else:
-                        logger.info(f"    Dimension matches configured: {expected_dim}")
+                    logger.info(f"  Metadata field: {chunk_data['metadata']}")
+                    assert "arxiv_id" in chunk_data["metadata"], "arxiv_id missing in metadata"
+                    assert "embedding_model" in chunk_data["metadata"], "embedding_model missing in metadata"
+                    assert chunk_data["metadata"].get("primary_category") == "cs.AI" # Test de la propagation
             else:
-                logger.warning(f"No embeddings were generated in the test run for provider '{provider_to_test}'.")
+                logger.warning(f"No structured chunks were generated in the test run for provider '{provider_to_test}'.")
         except Exception as e:
             logger.error(f"Error during embedding generation test for provider '{provider_to_test}': {e}", exc_info=True)
     else:

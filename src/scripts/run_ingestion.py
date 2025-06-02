@@ -1,25 +1,29 @@
 # cognitive-swarm-agents/scripts/run_ingestion.py
 import argparse
 import logging
-import asyncio # Not strictly needed here if all called functions are sync, but good for consistency if some become async
+import re 
+from pathlib import Path
 
 from config.settings import settings
 from config.logging_config import setup_logging
 
-# Importer les modules de traitement et de stockage
 from src.data_processing.arxiv_downloader import download_pipeline as download_arxiv_papers
 from src.data_processing.document_parser import parse_document_collection
 from src.data_processing.preprocessor import preprocess_parsed_documents
 from src.data_processing.embedder import generate_embeddings_for_chunks
 from src.vector_store.mongodb_manager import MongoDBManager
-
-# <<< CORRECTION : Importation de ConnectionFailure >>>
 from pymongo.errors import ConnectionFailure
 
 
-# Configurer le logger pour ce script
-# setup_logging() # Appelé dans main() pour permettre le contrôle du niveau via args
 logger = logging.getLogger(__name__)
+
+def sanitize_query_for_directory_name(query: str) -> str:
+    if not query:
+        return "default_corpus"
+    s = query.lower()
+    s = re.sub(r'[\s\W-]+', '_', s)
+    s = s.strip('_')
+    return s[:50]
 
 def main():
     parser = argparse.ArgumentParser(description="Cognitive Swarm: Data Ingestion Pipeline for ArXiv papers.")
@@ -27,7 +31,14 @@ def main():
         "--query",
         type=str,
         default=settings.ARXIV_DEFAULT_QUERY,
-        help=f"ArXiv search query (default: '{settings.ARXIV_DEFAULT_QUERY}')."
+        help=f"User's natural language query. Used for corpus naming if --corpus_name is not set, and as fallback for ArXiv search if --arxiv_keywords is not set. (default: '{settings.ARXIV_DEFAULT_QUERY}')."
+    )
+    # NOUVEL ARGUMENT
+    parser.add_argument(
+        "--arxiv_keywords",
+        type=str,
+        default=None,
+        help="Specific, optimized keywords for ArXiv search (e.g., English, using AND/OR). If provided, these are used for ArXiv search instead of the main --query."
     )
     parser.add_argument(
         "--max_results",
@@ -48,6 +59,12 @@ def main():
         default=settings.ARXIV_SORT_ORDER,
         choices=["ascending", "descending"],
         help=f"ArXiv sort order (default: '{settings.ARXIV_SORT_ORDER}')."
+    )
+    parser.add_argument(
+        "--corpus_name",
+        type=str,
+        default=None, 
+        help="Specific name for the corpus subdirectory. If not provided, it's derived from the main --query."
     )
     parser.add_argument(
         "--collection_name",
@@ -77,30 +94,51 @@ def main():
     parser.add_argument(
         "--skip_download",
         action="store_true",
-        help="Skip ArXiv download and use existing PDFs in data/corpus/rl_robotics_arxiv/pdfs/."
+        help="Skip ArXiv download and use existing PDFs in the target corpus directory."
     )
-    parser.add_argument(
-        "--force_create_indexes", # Note: This flag is informational; methods check existence
-        action="store_true",
-        help="Attempt to create MongoDB indexes (methods already check for existence)."
-    )
-
 
     args = parser.parse_args()
-
     setup_logging(level=args.log_level.upper())
 
     logger.info("Starting Data Ingestion Pipeline...")
-    logger.info(f"Parameters: query='{args.query}', max_results={args.max_results}, collection='{args.collection_name}'")
+    
+    # Déterminer le nom du corpus et construire les chemins
+    # Le nom du répertoire du corpus est basé sur args.query (la question générale) ou args.corpus_name
+    corpus_id_source = args.corpus_name if args.corpus_name else args.query
+    corpus_sub_dir_name = sanitize_query_for_directory_name(corpus_id_source)
+    
+    logger.info(f"Using corpus subdirectory name: '{corpus_sub_dir_name}' (derived from: '{corpus_id_source[:50]}...')")
+
+    corpus_base_path = Path(settings.DATA_DIR) / "corpus" / corpus_sub_dir_name
+    pdf_output_path = corpus_base_path / "pdfs"
+    metadata_output_path = corpus_base_path / "metadata"
+
+    pdf_output_path.mkdir(parents=True, exist_ok=True)
+    metadata_output_path.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"PDFs will be stored in/read from: {pdf_output_path}")
+    logger.info(f"Metadata will be stored in/read from: {metadata_output_path}")
+    
+    # Déterminer la requête à utiliser pour la recherche ArXiv
+    actual_arxiv_query = args.arxiv_keywords if args.arxiv_keywords else args.query
+    if args.arxiv_keywords:
+        logger.info(f"Using specific ArXiv keywords for search: '{args.arxiv_keywords}'")
+    else:
+        logger.info(f"Using main query for ArXiv search (consider using --arxiv_keywords for better results): '{args.query}'")
+    
+    logger.info(f"Parameters for ingestion: ArXiv query='{actual_arxiv_query}', max_results={args.max_results}, collection='{args.collection_name}'")
+
 
     if not args.skip_download:
         logger.info("Step 1: Downloading ArXiv papers...")
         try:
             download_results = download_arxiv_papers(
-                query=args.query,
+                query=actual_arxiv_query, # UTILISER LA REQUÊTE ARXIV SPÉCIFIQUE/FALLBACK
                 max_results=args.max_results,
                 sort_by=args.sort_by,
-                sort_order=args.sort_order
+                sort_order=args.sort_order,
+                pdf_output_dir=pdf_output_path,
+                metadata_output_dir=metadata_output_path
             )
             logger.info(f"ArXiv download complete. PDFs: {len(download_results['pdfs'])}, Metadata: {len(download_results['metadata'])}")
             if not download_results['pdfs']:
@@ -111,9 +149,13 @@ def main():
     else:
         logger.info("Step 1: Skipped ArXiv paper download as per --skip_download flag.")
 
+    # ... (le reste du script (parsing, preprocessing, embedding, mongoDB) reste inchangé)
     logger.info("\nStep 2: Parsing downloaded documents...")
     try:
-        parsed_documents = parse_document_collection() 
+        parsed_documents = parse_document_collection(
+            pdf_dir=pdf_output_path,
+            metadata_dir=metadata_output_path
+        ) 
         if not parsed_documents:
             logger.warning("No documents were parsed. Pipeline might not have data to process further.")
         logger.info(f"Successfully parsed {len(parsed_documents)} documents.")
@@ -148,7 +190,7 @@ def main():
     logger.info("\nStep 5: Managing MongoDB (inserting data and creating indexes)...")
     mongo_mgr = None 
     try:
-        mongo_mgr = MongoDBManager(mongo_uri=settings.MONGO_URI, db_name=settings.MONGO_DATABASE_NAME)
+        mongo_mgr = MongoDBManager(mongo_uri=settings.MONGODB_URI, db_name=settings.MONGO_DATABASE_NAME)
         mongo_mgr.connect() 
 
         if chunks_with_embeddings:
@@ -163,8 +205,8 @@ def main():
 
         logger.info(f"Ensuring vector search index '{args.vector_index_name}' exists/is created...")
         vector_filter_fields = [
-            "arxiv_id", 
-            "original_document_title", 
+            "metadata.arxiv_id", 
+            "metadata.original_document_title", 
             "metadata.primary_category" 
         ]
         mongo_mgr.create_vector_search_index(
@@ -175,19 +217,19 @@ def main():
         )
 
         logger.info(f"Ensuring text search index '{args.text_index_name}' exists/is created...")
+        additional_text_fields_for_index = { 
+            "metadata.original_document_title": "string",
+            "metadata.summary": "string" 
+        }
         mongo_mgr.create_text_search_index(
             collection_name=args.collection_name,
             index_name=args.text_index_name,
             text_field="text_chunk", 
-            additional_text_fields={ 
-                "original_document_title": "string",
-                "metadata.title": "string", 
-                "metadata.summary": "string" 
-            }
+            additional_text_fields=additional_text_fields_for_index
         )
         logger.info("MongoDB index management complete.")
 
-    except ConnectionFailure: # <<< ConnectionFailure est maintenant défini via l'import
+    except ConnectionFailure: 
         logger.error("Failed to connect to MongoDB. Aborting MongoDB operations.", exc_info=True)
     except Exception as e:
         logger.error(f"Error during MongoDB operations: {e}", exc_info=True)

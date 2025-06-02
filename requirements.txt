@@ -25,6 +25,7 @@ langchain-huggingface
 langgraph
 
 # --- LlamaIndex Family ---
+llama-index
 llama-index-core
 llama-index-vector-stores-mongodb
 llama-index-embeddings-openai

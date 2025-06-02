@@ -52,6 +52,8 @@ dependencies:
 
   # --- Paquets à installer via Pip ---
   - pip:
+    - llama-index
+    - llama-index-core
     - llama-index-vector-stores-mongodb
     - llama-index-embeddings-openai
     - llama-index-embeddings-huggingface # <<< NOUVELLE DÉPENDANCE AJOUTÉE ICI

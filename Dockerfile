@@ -41,4 +41,4 @@ CMD ["python", "-m", "scripts.run_cognitive_swarm", "--help"]
 
 # Pour exécuter un script spécifique, par exemple :
 # docker run cognitive-swarm-app python -m scripts.run_ingestion --max_results 1
-# docker run -e OPENAI_API_KEY=$OPENAI_API_KEY -e MONGO_URI=$MONGO_URI cognitive-swarm-app python -m scripts.run_cognitive_swarm --query "My query"
+# docker run -e OPENAI_API_KEY=$OPENAI_API_KEY -e MONGODB_URI=$MONGODB_URI cognitive-swarm-app python -m scripts.run_cognitive_swarm --query "My query"

@@ -97,7 +97,7 @@ cognitive-swarm-agents/
 │   ├── llm_services/    # Modules for LLM management and instantiation (e.g., llm_factory.py)
 │   ├── rag/             # RAG engine using LlamaIndex
 │   └── vector_store/    # MongoDB manager for collections and indexes
-├── .env                 # Local environment variables (API Keys, MONGO_URI - GIT IGNORED)
+├── .env                 # Local environment variables (API Keys, MONGODB_URI - GIT IGNORED)
 ├── .env.example         # Example template for .env
 ├── environment.yml      # Conda environment definition
 ├── requirements.txt     # Pip requirements file
@@ -127,7 +127,7 @@ cognitive-swarm-agents/
 
 3.  **Set Up Environment Variables (`.env` file)**:
     * Create a file named `.env` in the root directory of the project by copying `.env.example`.
-    * Vérifiez et ajustez également les variables suivantes dans votre `.env` pour sélectionner vos fournisseurs de modèles de langage et d'embeddings (les valeurs par défaut sont dans `config/settings.py` et commentées dans `.env.example`) :
+    * Check and adjust the following variables in your `.env` file to select your language model and embedding providers (default values are in `config/settings.py` and commented out in `.env.example`):
         * `DEFAULT_LLM_MODEL_PROVIDER` (ex: "huggingface_api", "openai", "ollama") et les variables associées (`HUGGINGFACE_API_KEY`, `HUGGINGFACE_REPO_ID`, `OLLAMA_GENERATIVE_MODEL_NAME`, etc.).
         * `DEFAULT_EMBEDDING_PROVIDER` (ex: "huggingface", "openai", "ollama") et les variables associées (`OPENAI_EMBEDDING_MODEL_NAME`, `HUGGINGFACE_EMBEDDING_MODEL_NAME`, `OLLAMA_EMBEDDING_MODEL_NAME`, etc.).
         * `OLLAMA_BASE_URL` si vous utilisez Ollama.

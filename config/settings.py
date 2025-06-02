@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     WANDB_API_KEY: Optional[str] = None
 
     # MongoDB Configuration
-    MONGO_URI: str = "mongodb://localhost:27017/"
+    MONGODB_URI: str = "mongodb://localhost:27017/"
     MONGO_DATABASE_NAME: str = "cognitive_swarm_db"
     MONGO_MAX_POOL_SIZE: int = 50
     MONGO_TIMEOUT_MS: int = 5000 # 5 seconds
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     print(f"HuggingFace API Key Loaded: {bool(settings.HUGGINGFACE_API_KEY)}")
 
     print(f"\n--- MongoDB Configuration ---")
-    print(f"Mongo URI: {settings.MONGO_URI}")
+    print(f"Mongo URI: {settings.MONGODB_URI}")
     print(f"Mongo Database: {settings.MONGO_DATABASE_NAME}")
 
     print(f"\n--- Data & Paths ---")

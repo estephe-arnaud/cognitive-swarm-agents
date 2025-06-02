@@ -95,7 +95,7 @@ def knowledge_base_retrieval_tool(
         # RetrievalEngine utilise les valeurs par défaut pour collection_name et vector_index_name
         # (ou celles de settings.py si RetrievalEngine est configuré pour cela).
         # Assurez-vous que la configuration d'embedding (settings.DEFAULT_EMBEDDING_PROVIDER) 
-        # et MONGO_URI sont corrects pour que cette initialisation réussisse.
+        # et MONGODB_URI sont corrects pour que cette initialisation réussisse.
         retrieval_engine_instance = RetrievalEngine() 
         logger.info("RetrievalEngine instance for knowledge_base_retrieval_tool created/accessed successfully.")
     except Exception as e:
@@ -186,9 +186,9 @@ if __name__ == "__main__":
     print(f"ArXiv Search Tool Direct Result:\n{json.dumps(arxiv_results, indent=2, ensure_ascii=False)}\n")
 
     # Test knowledge_base_retrieval_tool
-    # Ce test nécessite une configuration fonctionnelle pour MONGO_URI et DEFAULT_EMBEDDING_PROVIDER
+    # Ce test nécessite une configuration fonctionnelle pour MONGODB_URI et DEFAULT_EMBEDDING_PROVIDER
     logger.info("\n--- Test Direct de knowledge_base_retrieval_tool (avec lazy init) ---")
-    if settings.MONGO_URI and settings.DEFAULT_EMBEDDING_PROVIDER :
+    if settings.MONGODB_URI and settings.DEFAULT_EMBEDDING_PROVIDER :
         # Vérifications spécifiques pour les providers d'embedding
         can_test_kb = False
         if settings.DEFAULT_EMBEDDING_PROVIDER == "openai" and settings.OPENAI_API_KEY:
@@ -204,7 +204,7 @@ if __name__ == "__main__":
         else:
             print("Skipping knowledge_base_retrieval_tool test: Configuration for the selected embedding provider is incomplete (e.g., missing API key or URL).\n")
     else:
-        print("Skipping knowledge_base_retrieval_tool test: MONGO_URI or DEFAULT_EMBEDDING_PROVIDER not configured.\n")
+        print("Skipping knowledge_base_retrieval_tool test: MONGODB_URI or DEFAULT_EMBEDDING_PROVIDER not configured.\n")
 
     # Test document_deep_dive_analysis_tool
     # Ce test nécessite une configuration fonctionnelle pour DEFAULT_LLM_MODEL_PROVIDER (utilisé par CrewAI via get_llm)
