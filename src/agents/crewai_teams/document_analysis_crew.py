@@ -1,7 +1,20 @@
-# src/agents/crewai_teams/document_analysis_crew.py
+"""
+Document Analysis Crew Module
+
+This module implements a CrewAI-based document analysis system that uses a team of specialized
+agents to perform in-depth analysis of scientific documents. The crew consists of:
+- Information Extractor: Extracts key structured information
+- Section Summarizer: Provides concise summaries of document sections
+- Critical Analyst: Performs critical analysis of the research
+- Report Compiler: Compiles the final analytical report
+
+The module handles document analysis through a sequential process where each agent
+contributes to the final comprehensive report.
+"""
+
 import os
 import logging
-from typing import List, Dict, Any, Optional # 'Any' est utilisé pour le type hint de crew_output_obj
+from typing import List, Dict, Any, Optional
 
 from crewai import Agent, Task, Crew, Process
 # MODIFICATION: Suppression de l'import de CrewOutput car le chemin semble incorrect ou non nécessaire
@@ -13,187 +26,277 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 class DocumentAnalysisCrew:
+    """
+    A CrewAI-based document analysis system that coordinates multiple specialized agents
+    to perform comprehensive analysis of scientific documents.
+    """
+    
     def __init__(self, document_id: str, document_content: str, research_focus: str):
+        """
+        Initialize the document analysis crew.
+        
+        Args:
+            document_id: Unique identifier for the document
+            document_content: Full text content to analyze
+            research_focus: Specific focus or questions for the analysis
+        """
         self.document_id = document_id
         self.document_content = document_content
         self.research_focus = research_focus
         
         try:
-            self.llm = get_llm(temperature=0.2) 
+            self.llm = get_llm(temperature=0.2)
         except ValueError as e:
-            logger.error(f"Failed to get LLM for CrewAI from llm_factory: {e}. Ensure LLM provider is configured.")
-            logger.warning("LLM from get_llm() failed. CrewAI agents will attempt to use their default LLM if OPENAI_API_KEY is set globally.")
+            logger.error(f"Failed to initialize LLM: {e}")
+            logger.warning("Falling back to CrewAI's default LLM if OPENAI_API_KEY is set")
             self.llm = None
 
     def _create_agents(self) -> List[Agent]:
-        # ... (définitions des agents inchangées par rapport à la version précédente complète)
+        """
+        Create the team of specialized agents for document analysis.
+        
+        Returns:
+            List of configured CrewAI agents
+        """
         info_extractor = Agent(
             role='Expert Information Extractor for Scientific Papers',
-            goal=f"Meticulously extract key structured information (such as main methodology, dataset used, key quantitative results, and explicitly stated limitations) from the provided scientific paper text related to '{self.research_focus}'. Focus solely on information present in the text.",
-            backstory="You are an AI assistant with deep expertise in parsing scientific literature and identifying core components of research papers. You are extremely precise and only extract information that is explicitly stated.",
-            verbose=True, 
+            goal=f"Extract key structured information from the paper focusing on '{self.research_focus}'",
+            backstory="Expert in parsing scientific literature and identifying core research components",
+            verbose=True,
             allow_delegation=False,
-            llm=self.llm 
+            llm=self.llm
         )
+        
         section_summarizer = Agent(
             role='Scientific Section Summarizer',
-            goal=f"Provide concise summaries for the main sections (e.g., Abstract, Introduction, Methodology, Results, Conclusion) of the provided scientific paper text, keeping the research focus '{self.research_focus}' in mind. If distinct sections are not obvious, provide a general summary.",
-            backstory="You are an AI skilled in academic writing and can distill the essence of complex scientific sections into clear and brief summaries.",
+            goal=f"Provide concise summaries of document sections focusing on '{self.research_focus}'",
+            backstory="Skilled in distilling complex scientific sections into clear summaries",
             verbose=True,
             allow_delegation=False,
             llm=self.llm
         )
+        
         critical_analyst = Agent(
             role='Critical Analyst of Scientific Research',
-            goal=f"Critically analyze the provided scientific paper based on extracted information and summaries, focusing on '{self.research_focus}'. Identify key strengths, potential weaknesses or limitations, and novel contributions or insights. Do not invent information not supported by the provided text context.",
-            backstory="You are an experienced peer reviewer AI with a keen eye for scientific rigor, innovation, and potential areas of improvement in research papers.",
+            goal=f"Analyze the paper's strengths, weaknesses, and contributions regarding '{self.research_focus}'",
+            backstory="Experienced peer reviewer with expertise in scientific rigor and innovation",
             verbose=True,
             allow_delegation=False,
             llm=self.llm
         )
+        
         report_compiler = Agent(
             role='Lead Research Report Compiler',
-            goal=f"Compile a comprehensive and structured analytical report for the scientific paper (ID: {self.document_id}) focusing on '{self.research_focus}'. Integrate the extracted key information, section summaries, and critical analysis from other team members into a coherent final document.",
-            backstory="You are a senior AI research lead responsible for synthesizing detailed analyses from your team into a final, publishable-quality report. Your work is structured, clear, and directly addresses the research focus.",
+            goal=f"Compile a comprehensive report for document {self.document_id} focusing on '{self.research_focus}'",
+            backstory="Senior research lead responsible for synthesizing detailed analyses into final reports",
             verbose=True,
             allow_delegation=True,
             llm=self.llm
         )
+        
         return [info_extractor, section_summarizer, critical_analyst, report_compiler]
 
     def _create_tasks(self, agents: List[Agent]) -> List[Task]:
+        """
+        Create the sequence of tasks for document analysis.
+        
+        Args:
+            agents: List of agents to assign tasks to
+            
+        Returns:
+            List of configured CrewAI tasks
+        """
         info_extractor, section_summarizer, critical_analyst, report_compiler = agents
-        # ... (définitions des tâches inchangées) ...
+        
         task_extract_info = Task(
-            description=f"Analyze the following document (ID: {self.document_id}) with a research focus on '{self.research_focus}'. Extract key information: primary methodology, datasets used (if any), main quantitative results, and author-stated limitations. Present this as a structured list or key-value pairs. Document Content:\n\n---\n{self.document_content}\n---",
-            expected_output="A structured list or dictionary containing the extracted methodology, datasets, key results, and limitations.",
-            agent=info_extractor,
+            description=(
+                f"Analyze document {self.document_id} focusing on '{self.research_focus}'.\n"
+                "Extract: methodology, datasets, results, limitations.\n"
+                f"Content:\n---\n{self.document_content}\n---"
+            ),
+            expected_output="Structured list of extracted information",
+            agent=info_extractor
         )
+        
         task_summarize_sections = Task(
-            description=f"Based on the document (ID: {self.document_id}) and focusing on '{self.research_focus}', provide concise summaries for its main logical sections (e.g., Abstract, Introduction, Methods, Results, Conclusion). If sections are not clearly delineated, provide a general summary. Document Content:\n\n---\n{self.document_content}\n---",
-            expected_output="A set of concise summaries for each main section of the document, or an overall summary if sections are not distinct.",
+            description=(
+                f"Summarize main sections of document {self.document_id} focusing on '{self.research_focus}'.\n"
+                f"Content:\n---\n{self.document_content}\n---"
+            ),
+            expected_output="Concise summaries of document sections",
             agent=section_summarizer,
             context=[task_extract_info]
         )
+        
         task_critical_analysis = Task(
-            description=f"Perform a critical analysis of the document (ID: {self.document_id}) focusing on '{self.research_focus}'. Use the extracted information and section summaries (if available from previous tasks) to identify strengths, weaknesses, and novel contributions. Document Content (for reference, primary input should be outputs of previous tasks if available):\n\n---\n{self.document_content}\n---",
-            expected_output="A brief critical analysis highlighting strengths, weaknesses, and novel contributions of the paper relevant to the research focus.",
+            description=(
+                f"Analyze document {self.document_id} focusing on '{self.research_focus}'.\n"
+                "Use previous task outputs to identify strengths, weaknesses, and contributions."
+            ),
+            expected_output="Critical analysis of the paper's key aspects",
             agent=critical_analyst,
             context=[task_extract_info, task_summarize_sections]
         )
+        
         task_compile_report = Task(
-            description=f"Compile a final, structured analytical report for document ID: {self.document_id} with a focus on '{self.research_focus}'. Integrate the outputs from the Information Extractor, Section Summarizer, and Critical Analyst. The report should be well-organized and directly address the research focus.",
-            expected_output=f"A comprehensive analytical report for document {self.document_id} covering: 1. Extracted Key Information (Methodology, Results, Limitations). 2. Section Summaries. 3. Critical Analysis (Strengths, Weaknesses, Contributions). Ensure the report is tailored to the research focus: '{self.research_focus}'.",
+            description=(
+                f"Compile final report for document {self.document_id} focusing on '{self.research_focus}'.\n"
+                "Integrate all previous analyses into a comprehensive report."
+            ),
+            expected_output=(
+                f"Comprehensive report covering:\n"
+                "1. Key Information (Methodology, Results, Limitations)\n"
+                "2. Section Summaries\n"
+                "3. Critical Analysis"
+            ),
             agent=report_compiler,
             context=[task_extract_info, task_summarize_sections, task_critical_analysis]
         )
+        
         return [task_extract_info, task_summarize_sections, task_critical_analysis, task_compile_report]
 
     def run(self) -> str:
-        if self.llm is None and not os.environ.get("OPENAI_API_KEY"): 
-            logger.error("Cannot run CrewAI DocumentAnalysisCrew: Neither a local LLM nor a global OPENAI_API_KEY is configured.")
-            return "Error: LLM for CrewAI agents is not configured. Please set API keys via .env or ensure OPENAI_API_KEY is set for CrewAI's default."
+        """
+        Execute the document analysis process.
+        
+        Returns:
+            Final analytical report or error message
+        """
+        if self.llm is None and not os.environ.get("OPENAI_API_KEY"):
+            error_msg = "LLM not configured. Set API keys via .env or OPENAI_API_KEY"
+            logger.error(error_msg)
+            return f"Error: {error_msg}"
 
-        logger.info(f"Starting Document Analysis Crew for doc ID: {self.document_id}, focus: '{self.research_focus}'")
-        agents = self._create_agents()
-        tasks = self._create_tasks(agents)
-
-        crew = Crew(
-            agents=agents,
-            tasks=tasks,
-            process=Process.sequential,
-            verbose=False 
-        )
-
+        logger.info(f"Starting analysis for document {self.document_id}")
+        
         try:
-            # MODIFICATION: Changer le type hint de crew_output_obj en Optional[Any]
-            crew_output_obj: Optional[Any] = crew.kickoff() 
+            # Initialize and run the crew
+            crew = Crew(
+                agents=self._create_agents(),
+                tasks=self._create_tasks(self._create_agents()),
+                process=Process.sequential,
+                verbose=False
+            )
             
-            final_text_report = ""
-            if crew_output_obj:
-                if hasattr(crew_output_obj, 'raw') and crew_output_obj.raw:
-                    final_text_report = str(crew_output_obj.raw)
-                elif hasattr(crew_output_obj, 'tasks_output') and crew_output_obj.tasks_output:
-                    last_task_output = crew_output_obj.tasks_output[-1]
-                    if hasattr(last_task_output, 'exported_output') and last_task_output.exported_output:
-                        final_text_report = str(last_task_output.exported_output)
-                    elif hasattr(last_task_output, 'raw_output') and last_task_output.raw_output:
-                         final_text_report = str(last_task_output.raw_output)
-                    else: 
-                        final_text_report = str(last_task_output) 
-                        logger.warning(f"Used str(last_task_output) as exported_output/raw_output not found. Output: {final_text_report[:100]}")
-                elif hasattr(crew_output_obj, 'data') and hasattr(crew_output_obj.data, 'output') and crew_output_obj.data.output:
-                    final_text_report = str(crew_output_obj.data.output)
-                else: 
-                    final_text_report = str(crew_output_obj) 
-                    logger.warning(f"crew_output_obj.raw and specific task outputs were None or not present. Using str(crew_output_obj). Output: {final_text_report[:200]}...")
-            else:
-                logger.warning("crew.kickoff() returned None.")
-
-            report_length = len(final_text_report) if final_text_report else 0
-            logger.info(f"Document Analysis Crew finished for doc ID: {self.document_id}. Result length: {report_length}")
-            return final_text_report 
+            # Execute analysis and process results
+            crew_output = crew.kickoff()
+            final_report = self._process_crew_output(crew_output)
+            
+            logger.info(f"Analysis completed for document {self.document_id}")
+            return final_report
             
         except Exception as e:
-            logger.error(f"Error during CrewAI kickoff for document {self.document_id}: {e}", exc_info=True)
-            return f"Error during document analysis by CrewAI (kickoff exception): {str(e)}"
+            error_msg = f"Analysis failed: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            return f"Error: {error_msg}"
+
+    def _process_crew_output(self, output: Any) -> str:
+        """
+        Process the crew's output into a final report.
+        
+        Args:
+            output: Raw output from the crew
+            
+        Returns:
+            Processed report text
+        """
+        if not output:
+            logger.warning("Crew returned no output")
+            return "Error: No analysis results available"
+            
+        # Try different output formats
+        if hasattr(output, 'raw') and output.raw:
+            return str(output.raw)
+            
+        if hasattr(output, 'tasks_output') and output.tasks_output:
+            last_task = output.tasks_output[-1]
+            if hasattr(last_task, 'exported_output') and last_task.exported_output:
+                return str(last_task.exported_output)
+            if hasattr(last_task, 'raw_output') and last_task.raw_output:
+                return str(last_task.raw_output)
+            return str(last_task)
+            
+        if hasattr(output, 'data') and hasattr(output.data, 'output'):
+            return str(output.data.output)
+            
+        return str(output)
 
 def run_document_deep_dive_crew(
-    document_id: str, 
-    document_content: str, 
+    document_id: str,
+    document_content: str,
     research_focus: str
 ) -> str:
-    if not document_content or not document_content.strip():
-        logger.warning(f"Document content for {document_id} is empty. Skipping deep dive analysis.")
-        return "Error: Document content provided was empty."
+    """
+    Run a deep dive analysis on a document using the DocumentAnalysisCrew.
+    
+    Args:
+        document_id: Unique identifier for the document
+        document_content: Full text content to analyze
+        research_focus: Specific focus or questions for the analysis
         
-    crew_runner = DocumentAnalysisCrew(
+    Returns:
+        Analysis report or error message
+    """
+    if not document_content or not document_content.strip():
+        logger.warning(f"Empty document content for {document_id}")
+        return "Error: Document content is empty"
+        
+    crew = DocumentAnalysisCrew(
         document_id=document_id,
         document_content=document_content,
         research_focus=research_focus
     )
-    return crew_runner.run()
+    return crew.run()
+
+def _can_run_crew_test() -> bool:
+    """
+    Check if the crew test can be run with current configuration.
+    
+    Returns:
+        True if configuration is valid, False otherwise
+    """
+    try:
+        provider = settings.DEFAULT_LLM_MODEL_PROVIDER.lower()
+        
+        if provider == "openai" and settings.OPENAI_API_KEY:
+            return True
+        if provider == "huggingface_api" and settings.HUGGINGFACE_API_KEY and settings.HUGGINGFACE_REPO_ID:
+            return True
+        if provider == "ollama" and settings.OLLAMA_BASE_URL and settings.OLLAMA_GENERATIVE_MODEL_NAME:
+            return True
+        if os.environ.get("OPENAI_API_KEY"):
+            logger.warning("Using OPENAI_API_KEY from environment")
+            return True
+            
+    except Exception as e:
+        logger.warning(f"Configuration check failed: {e}")
+        return bool(os.environ.get("OPENAI_API_KEY"))
+        
+    return False
 
 if __name__ == "__main__":
-    from config.logging_config import setup_logging 
-    setup_logging(level="DEBUG") 
-
-    logger.info("--- Testing DocumentAnalysisCrew (with CrewOutput type hint fix) ---")
-    can_run_crew_test = False
-    try:
-        provider_check = settings.DEFAULT_LLM_MODEL_PROVIDER.lower()
-        if provider_check == "openai" and settings.OPENAI_API_KEY:
-            can_run_crew_test = True
-        elif provider_check == "huggingface_api" and settings.HUGGINGFACE_API_KEY and settings.HUGGINGFACE_REPO_ID:
-            can_run_crew_test = True
-        elif provider_check == "ollama" and settings.OLLAMA_BASE_URL and settings.OLLAMA_GENERATIVE_MODEL_NAME:
-            can_run_crew_test = True
-        elif os.environ.get("OPENAI_API_KEY"): 
-            logger.warning("Default LLM provider in settings might not be configured, but OPENAI_API_KEY is in env. CrewAI might work with its default.")
-            can_run_crew_test = True
-    except Exception as e_llm_check:
-        logger.warning(f"Pre-check for LLM configuration failed: {e_llm_check}. CrewAI test might fail.")
-        if os.environ.get("OPENAI_API_KEY"):
-             can_run_crew_test = True
-
-    if not can_run_crew_test:
-        logger.error("Necessary LLM configuration not found. Cannot run CrewAI test effectively.")
+    from config.logging_config import setup_logging
+    setup_logging(level="DEBUG")
+    
+    logger.info("Testing Document Analysis Crew")
+    
+    if not _can_run_crew_test():
+        logger.error("Cannot run test: LLM configuration missing")
     else:
-        sample_doc_id = "test_arxiv_crewoutput_typehint_fix"
-        sample_doc_content = "Sample content for testing CrewOutput. This document discusses methodology, results, and limitations of a new technique."
-        sample_research_focus = "Extract methodology, results, and limitations."
-
-        logger.info(f"Test - Document ID: {sample_doc_id}")
-        logger.info(f"Test - Research Focus: {sample_research_focus}")
+        test_doc = {
+            "id": "test_001",
+            "content": "Sample document about methodology, results, and limitations.",
+            "focus": "Extract methodology, results, and limitations"
+        }
         
-        final_report = run_document_deep_dive_crew(
-            document_id=sample_doc_id,
-            document_content=sample_doc_content,
-            research_focus=sample_research_focus
+        report = run_document_deep_dive_crew(
+            document_id=test_doc["id"],
+            document_content=test_doc["content"],
+            research_focus=test_doc["focus"]
         )
-
-        print("\n--- Final Compiled Report from CrewAI (with CrewOutput type hint fix) ---")
-        print(final_report)
-        print("-------------------------------------------------------------")
-
-    logger.info("--- DocumentAnalysisCrew Test Finished ---")
+        
+        print("\nAnalysis Report:")
+        print(report)
+        print("-" * 50)
+    
+    logger.info("Test completed")

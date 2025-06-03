@@ -1,26 +1,47 @@
-# src/llm_services/llm_factory.py
+"""
+Language Model Factory Module
+
+This module provides a factory for creating and configuring language model instances
+from various providers (OpenAI, HuggingFace, Ollama). It includes a custom wrapper
+for HuggingFace models with streaming fallback support.
+
+The module handles:
+- Provider-specific model initialization
+- API key validation
+- Model configuration
+- Streaming support
+- Error handling and logging
+"""
+
 import logging
-from typing import Optional, List, Iterator, AsyncIterator, Any 
+from typing import Optional, List, Iterator, AsyncIterator, Any
 
 from langchain_core.language_models import BaseLanguageModel
-from langchain_core.messages import BaseMessage, AIMessageChunk 
-from langchain_core.outputs import ChatGenerationChunk, ChatResult 
-from langchain_core.callbacks import CallbackManagerForLLMRun 
+from langchain_core.messages import BaseMessage, AIMessageChunk
+from langchain_core.outputs import ChatGenerationChunk, ChatResult
+from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_openai import ChatOpenAI
-from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace 
-# MODIFICATION: Nouvel import pour ChatOllama
-from langchain_ollama import ChatOllama 
-
+from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
+from langchain_ollama import ChatOllama
 from transformers import AutoTokenizer
 
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LLM_TEMPERATURE = 0.0
-SYNTHESIS_LLM_TEMPERATURE = 0.5
+# Temperature settings for different use cases
+DEFAULT_LLM_TEMPERATURE = 0.0  # For precise, deterministic responses
+SYNTHESIS_LLM_TEMPERATURE = 0.5  # For more creative synthesis tasks
 
 class StreamFallbackChatHuggingFace(ChatHuggingFace):
+    """
+    Custom wrapper for HuggingFace chat models that provides fallback streaming support.
+    
+    This class extends ChatHuggingFace to handle cases where the underlying model
+    doesn't fully support native streaming. It implements fallback mechanisms for
+    both synchronous and asynchronous streaming.
+    """
+    
     def _stream(
         self,
         messages: List[BaseMessage],
@@ -28,23 +49,36 @@ class StreamFallbackChatHuggingFace(ChatHuggingFace):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
-        if isinstance(self.llm, HuggingFaceEndpoint): 
+        """
+        Handle streaming with fallback for HuggingFaceEndpoint.
+        
+        Args:
+            messages: List of messages to process
+            stop: Optional list of stop sequences
+            run_manager: Optional callback manager
+            **kwargs: Additional arguments for the model
+            
+        Returns:
+            Iterator yielding chat generation chunks
+        """
+        if isinstance(self.llm, HuggingFaceEndpoint):
+            repo_id = getattr(self.llm, 'repo_id', 'N/A')
             logger.warning(
-                f"HuggingFaceEndpoint (LLM: {self.llm.repo_id if hasattr(self.llm, 'repo_id') else 'N/A'}) may not fully support native streaming with all configurations. "
-                f"Using non-streaming generation for {type(self).__name__}._stream and yielding as a single chunk."
+                f"HuggingFaceEndpoint (LLM: {repo_id}) "
+                "may not fully support native streaming. Using non-streaming generation."
             )
-            chat_result: ChatResult = self._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
-            for generation in chat_result.generations:
-                message_chunk = AIMessageChunk(
-                    content=str(generation.message.content), 
+            result = self._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            for generation in result.generations:
+                chunk = AIMessageChunk(
+                    content=str(generation.message.content),
                     additional_kwargs=generation.message.additional_kwargs,
-                    response_metadata=generation.message.response_metadata if hasattr(generation.message, 'response_metadata') else {}
+                    response_metadata=getattr(generation.message, 'response_metadata', {})
                 )
-                yield ChatGenerationChunk(message=message_chunk)
+                yield ChatGenerationChunk(message=chunk)
             return
-        else:
-            logger.debug(f"Using parent _stream for LLM type: {type(self.llm)}")
-            yield from super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+        logger.debug(f"Using parent _stream for LLM type: {type(self.llm)}")
+        yield from super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
 
     async def _astream(
         self,
@@ -53,125 +87,154 @@ class StreamFallbackChatHuggingFace(ChatHuggingFace):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
+        """
+        Handle async streaming with fallback for HuggingFaceEndpoint.
+        
+        Args:
+            messages: List of messages to process
+            stop: Optional list of stop sequences
+            run_manager: Optional callback manager
+            **kwargs: Additional arguments for the model
+            
+        Returns:
+            AsyncIterator yielding chat generation chunks
+        """
         if isinstance(self.llm, HuggingFaceEndpoint):
+            repo_id = getattr(self.llm, 'repo_id', 'N/A')
             logger.warning(
-                f"HuggingFaceEndpoint (LLM: {self.llm.repo_id if hasattr(self.llm, 'repo_id') else 'N/A'}) may not fully support native async streaming. "
-                f"Using non-streaming async generation for {type(self).__name__}._astream and yielding as a single chunk."
+                f"HuggingFaceEndpoint (LLM: {repo_id}) "
+                "may not fully support native async streaming. Using non-streaming async generation."
             )
-            chat_result: ChatResult = await self._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
-            for generation in chat_result.generations:
-                message_chunk = AIMessageChunk(
-                    content=str(generation.message.content), 
+            result = await self._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            for generation in result.generations:
+                chunk = AIMessageChunk(
+                    content=str(generation.message.content),
                     additional_kwargs=generation.message.additional_kwargs,
-                    response_metadata=generation.message.response_metadata if hasattr(generation.message, 'response_metadata') else {}
+                    response_metadata=getattr(generation.message, 'response_metadata', {})
                 )
-                yield ChatGenerationChunk(message=message_chunk)
+                yield ChatGenerationChunk(message=chunk)
             return
-        else:
-            logger.debug(f"Using parent _astream for LLM type: {type(self.llm)}")
-            async for chunk in super()._astream(messages, stop=stop, run_manager=run_manager, **kwargs):
-                yield chunk
+
+        logger.debug(f"Using parent _astream for LLM type: {type(self.llm)}")
+        async for chunk in super()._astream(messages, stop=stop, run_manager=run_manager, **kwargs):
+            yield chunk
 
 def get_llm(
     temperature: Optional[float] = None,
     model_provider_override: Optional[str] = None,
     model_name_override: Optional[str] = None
 ) -> BaseLanguageModel:
-    provider = model_provider_override or settings.DEFAULT_LLM_MODEL_PROVIDER
-    provider = provider.lower()
-    effective_temperature = DEFAULT_LLM_TEMPERATURE if temperature is None else temperature
+    """
+    Create and configure a language model instance based on settings and overrides.
+    
+    Args:
+        temperature: Optional temperature setting (defaults to DEFAULT_LLM_TEMPERATURE)
+        model_provider_override: Optional override for the model provider
+        model_name_override: Optional override for the model name
+        
+    Returns:
+        Configured language model instance
+        
+    Raises:
+        ValueError: If required configuration is missing or invalid
+    """
+    provider = (model_provider_override or settings.DEFAULT_LLM_MODEL_PROVIDER).lower()
+    temperature = DEFAULT_LLM_TEMPERATURE if temperature is None else temperature
 
-    logger.info(f"Initializing LLM from llm_factory for provider: '{provider}' with temperature: {effective_temperature}")
+    logger.info(f"Initializing LLM for provider: '{provider}' (temperature: {temperature})")
 
     if provider == "openai":
-        if not settings.OPENAI_API_KEY:
-            logger.error("OpenAI API key is not configured.")
-            raise ValueError("OpenAI API key is missing.")
-        openai_model_name = model_name_override or settings.DEFAULT_OPENAI_GENERATIVE_MODEL
-        logger.info(f"Using OpenAI model: {openai_model_name}")
-        return ChatOpenAI(
-            model=openai_model_name,
-            temperature=effective_temperature,
-            api_key=settings.OPENAI_API_KEY
-        )
+        return _create_openai_llm(temperature, model_name_override)
     elif provider == "huggingface_api":
-        if not settings.HUGGINGFACE_API_KEY:
-            logger.error("HuggingFace API key is not configured for Inference API.")
-            raise ValueError("HuggingFace API key is missing.")
-        hf_repo_id = model_name_override or settings.HUGGINGFACE_REPO_ID
-        if not hf_repo_id:
-            logger.error("HuggingFace Repository ID is not configured.")
-            raise ValueError("HuggingFace Repository ID is missing.")
-        
-        logger.info(f"Creating HuggingFaceEndpoint (from langchain_huggingface) instance for repo: {hf_repo_id}")
-        endpoint_llm = HuggingFaceEndpoint(
-            repo_id=hf_repo_id, 
-            huggingfacehub_api_token=settings.HUGGINGFACE_API_KEY,
-            temperature=effective_temperature,
-            max_new_tokens=1024,
-            model_kwargs={} 
-        )
-
-        try:
-            logger.info(f"Loading tokenizer for {hf_repo_id} using HUGGINGFACE_API_KEY as token...")
-            tokenizer = AutoTokenizer.from_pretrained(
-                hf_repo_id, 
-                token=settings.HUGGINGFACE_API_KEY 
-            )
-            logger.info(f"Tokenizer for {hf_repo_id} loaded successfully.")
-        except Exception as e:
-            logger.error(f"Could not load tokenizer for '{hf_repo_id}' using AutoTokenizer. Error: {e}", exc_info=True)
-            raise ValueError(f"Failed to load tokenizer for Hugging Face model {hf_repo_id}. "
-                             f"Ensure you have accepted the model's terms on Hugging Face website and your HUGGINGFACE_API_KEY is correct. "
-                             f"Original error: {e}")
-
-        logger.info(f"Wrapping HuggingFaceEndpoint LLM with StreamFallbackChatHuggingFace for provider: {provider}")
-        return StreamFallbackChatHuggingFace(llm=endpoint_llm, tokenizer=tokenizer) 
-        
+        return _create_huggingface_llm(temperature, model_name_override)
     elif provider == "ollama":
-        if not settings.OLLAMA_BASE_URL:
-            logger.error("Ollama base URL is not configured.")
-            raise ValueError("Ollama base URL is missing.")
-        ollama_model_name = model_name_override or settings.OLLAMA_GENERATIVE_MODEL_NAME
-        if not ollama_model_name:
-            logger.error("Ollama generative model name is not configured.")
-            raise ValueError("Ollama generative model name is missing.")
-        logger.info(f"Using Ollama model (via langchain_ollama): {ollama_model_name} from {settings.OLLAMA_BASE_URL}")
-        # MODIFICATION: Utilisation de ChatOllama depuis langchain_ollama
-        return ChatOllama(
-            model=ollama_model_name,
-            base_url=settings.OLLAMA_BASE_URL,
-            temperature=effective_temperature
-            # D'autres paramètres comme 'format="json"' peuvent être ajoutés ici si le modèle le supporte et que c'est nécessaire.
+        return _create_ollama_llm(temperature, model_name_override)
+    
+    raise ValueError(f"Unsupported LLM provider: {provider}")
+
+def _create_openai_llm(temperature: float, model_name_override: Optional[str]) -> ChatOpenAI:
+    """Create and configure an OpenAI language model."""
+    if not settings.OPENAI_API_KEY:
+        raise ValueError("OpenAI API key is missing")
+    
+    model = model_name_override or settings.DEFAULT_OPENAI_GENERATIVE_MODEL
+    logger.info(f"Using OpenAI model: {model}")
+    
+    return ChatOpenAI(
+        model=model,
+        temperature=temperature,
+        api_key=settings.OPENAI_API_KEY
+    )
+
+def _create_huggingface_llm(temperature: float, model_name_override: Optional[str]) -> StreamFallbackChatHuggingFace:
+    """Create and configure a HuggingFace language model with streaming fallback."""
+    if not settings.HUGGINGFACE_API_KEY:
+        raise ValueError("HuggingFace API key is missing")
+    
+    repo_id = model_name_override or settings.HUGGINGFACE_REPO_ID
+    if not repo_id:
+        raise ValueError("HuggingFace Repository ID is missing")
+    
+    logger.info(f"Creating HuggingFaceEndpoint for repo: {repo_id}")
+    endpoint = HuggingFaceEndpoint(
+        repo_id=repo_id,
+        huggingfacehub_api_token=settings.HUGGINGFACE_API_KEY,
+        temperature=temperature,
+        max_new_tokens=1024,
+        model_kwargs={}
+    )
+
+    try:
+        logger.info(f"Loading tokenizer for {repo_id}")
+        tokenizer = AutoTokenizer.from_pretrained(
+            repo_id,
+            token=settings.HUGGINGFACE_API_KEY
         )
-    else:
-        logger.error(f"Unsupported LLM provider: {provider}")
-        raise ValueError(f"Unsupported LLM provider: {provider}")
+    except Exception as e:
+        raise ValueError(
+            f"Failed to load tokenizer for {repo_id}. "
+            "Ensure you have accepted the model's terms on Hugging Face "
+            f"and your API key is correct. Error: {e}"
+        )
+
+    return StreamFallbackChatHuggingFace(llm=endpoint, tokenizer=tokenizer)
+
+def _create_ollama_llm(temperature: float, model_name_override: Optional[str]) -> ChatOllama:
+    """Create and configure an Ollama language model."""
+    if not settings.OLLAMA_BASE_URL:
+        raise ValueError("Ollama base URL is missing")
+    
+    model = model_name_override or settings.OLLAMA_GENERATIVE_MODEL_NAME
+    if not model:
+        raise ValueError("Ollama model name is missing")
+    
+    logger.info(f"Using Ollama model: {model} from {settings.OLLAMA_BASE_URL}")
+    return ChatOllama(
+        model=model,
+        base_url=settings.OLLAMA_BASE_URL,
+        temperature=temperature
+    )
 
 if __name__ == "__main__":
     from config.logging_config import setup_logging
     setup_logging(level="DEBUG")
-    logger.info("--- Testing LLM Factory (with updated ChatOllama import) ---")
+    
+    logger.info("Testing LLM Factory")
     try:
-        # settings.DEFAULT_LLM_MODEL_PROVIDER = "ollama" # Décommentez pour forcer ce test
-        # settings.OLLAMA_GENERATIVE_MODEL_NAME="mistral"
-        
-        logger.info(f"Attempting to get LLM for provider: {settings.DEFAULT_LLM_MODEL_PROVIDER}")
-        default_llm = get_llm()
-        logger.info(f"Successfully got LLM instance of type: {type(default_llm)} for provider '{settings.DEFAULT_LLM_MODEL_PROVIDER}'")
+        logger.info(f"Getting LLM for provider: {settings.DEFAULT_LLM_MODEL_PROVIDER}")
+        llm = get_llm()
+        logger.info(f"Successfully initialized {type(llm)} for {settings.DEFAULT_LLM_MODEL_PROVIDER}")
         
         if settings.DEFAULT_LLM_MODEL_PROVIDER.lower() == "ollama":
-            assert isinstance(default_llm, ChatOllama), \
-                f"Expected langchain_ollama.ChatOllama instance for ollama provider, but got {type(default_llm)}"
-            logger.info("Assertion for langchain_ollama.ChatOllama instance passed.")
-            # Test d'invocation simple si c'est Ollama
-            # print(default_llm.invoke("Why is the sky blue?"))
+            assert isinstance(llm, ChatOllama), \
+                f"Expected ChatOllama instance, got {type(llm)}"
+            logger.info("ChatOllama instance verified")
 
-
-    except ValueError as ve:
-        logger.error(f"Test failed due to ValueError: {ve}. Check your .env and settings.py.")
-    except ImportError as ie:
-        logger.error(f"Test failed due to ImportError: {ie}. Ensure dependencies are installed.")
+    except ValueError as e:
+        logger.error(f"Configuration error: {e}")
+    except ImportError as e:
+        logger.error(f"Missing dependency: {e}")
     except Exception as e:
-        logger.error(f"An unexpected error occurred in llm_factory test: {e}", exc_info=True)
-    logger.info("--- LLM Factory Test Finished ---")
+        logger.error(f"Unexpected error: {e}", exc_info=True)
+    
+    logger.info("LLM Factory test complete")

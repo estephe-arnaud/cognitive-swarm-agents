@@ -1,5 +1,11 @@
 # MAKERS: Multi Agent Knowledge Exploration & Retrieval System
 
+<!-- 
+Optional Badges:
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+-->
+
 ## 🚀 Overview
 
 "**MAKERS**" is a multi-agent system designed and implemented to collaboratively search, analyze, and synthesize information from complex document corpora (e.g., scientific research papers, technical documentation). It leverages Large Language Models (LLMs) through frameworks like LangGraph (for orchestration) and LlamaIndex (for advanced Retrieval Augmented Generation - RAG), with MongoDB Atlas serving as the vector database and for persisting agent states.
@@ -117,7 +123,7 @@ makers/
 
 1.  **Clone the Repository**:
     ```bash
-    git clone <repository_url> # Remplacez par l'URL de votre dépôt GitHub
+    git clone https://github.com/estephe-arnaud/makers
     cd makers
     ```
 
@@ -145,7 +151,7 @@ makers/
 
 5.  **Verify Setup**: Run the first Jupyter notebook to ensure your environment is correctly configured:
     ```bash
-    # Assurez-vous que votre environnement Conda 'makers' est activé
+    # Ensure your 'makers' Conda environment is activated
     jupyter notebook notebooks/00_setup_environment.ipynb
     ```
     Follow the instructions within the notebook.
@@ -158,8 +164,8 @@ All commands below should be run from the root directory of the project (`makers
 
 To populate your MongoDB database with ArXiv papers (this will use Ollama for embeddings by default if not overridden in `.env`):
 ```bash
-python -m scripts.run_ingestion --query "Your research topic in natural language" \
-    --arxiv_keywords "your, optimized, English, ArXiv, keywords" \
+python -m scripts.run_ingestion --query "What are the latest advancements in using large language models for robot task planning?" \
+    --arxiv_keywords "robotics, planning, large language models" \
     --corpus_name "my_custom_corpus_name" \
     --max_results 10 \
     --log_level INFO
@@ -204,18 +210,18 @@ uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
 You can then send POST requests to `http://localhost:8000/invoke_makers`.
 
-## 📓 Notebooks Overview
+## 📓 Notebooks & Scripts for Demonstration and Testing
 
-The `notebooks/` directory provides detailed examples and demonstrations:
+The `notebooks/` directory contains a mix of Jupyter Notebooks (`.ipynb`) for initial setup and Python scripts (`.py`) for detailed examples, component demonstrations, and testing. The `.py` scripts (01-07) are optimized versions and can be executed directly or converted to `.ipynb` format for interactive exploration (e.g., using `jupytext`).
 
-* `00_setup_environment.ipynb`: Environment configuration and verification.
-* `01_data_ingestion_and_embedding.ipynb`: Step-by-step data ingestion pipeline (needs updates to reflect new path handling).
-* `02_rag_strategies_exploration.ipynb`: Exploring RAG with `RetrievalEngine`.
-* `03_agent_development_and_tooling.ipynb`: Testing individual agents and their tools.
-* `04_langgraph_workflow_design.ipynb`: Executing and observing the LangGraph workflow.
-* `05_crewai_team_integration.ipynb`: Demonstrating the CrewAI `DocumentAnalysisCrew`.
-* `06_end_to_end_pipeline_test.ipynb`: In-depth test of the full pipeline on a complex query.
-* `07_evaluation_and_logging.ipynb`: Using evaluation modules and logging to W&B.
+*   `00_setup_environment.ipynb`: Use this Jupyter Notebook for initial environment configuration and verification.
+*   `01_data_ingestion_and_embedding.py`: Demonstrates the step-by-step data ingestion pipeline.
+*   `02_rag_strategies_exploration.py`: Allows for exploring RAG strategies using the `RetrievalEngine`.
+*   `03_agent_development_and_tooling.py`: Facilitates testing of individual agents and their associated tools.
+*   `04_langgraph_workflow_design.py`: Shows execution and observation of the main LangGraph workflow.
+*   `05_crewai_team_integration.py`: Demonstrates the CrewAI `DocumentAnalysisCrew` integration.
+*   `06_end_to_end_pipeline_test.py`: Provides an in-depth test of the full pipeline with a complex query.
+*   `07_evaluation_and_logging.py`: Details the use of evaluation modules and logging metrics to Weights & Biases.
 
 ## 🔮 Future Work / To-Do (Conceptual)
 
@@ -250,4 +256,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```

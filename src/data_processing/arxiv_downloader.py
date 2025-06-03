@@ -1,10 +1,24 @@
-# src/data_processing/arxiv_downloader.py
-import arxiv
+"""
+ArXiv Downloader Module
+
+This module provides functionality for searching and downloading papers from ArXiv.
+It handles the search process, metadata extraction, and PDF downloads with rate limiting
+to respect ArXiv's API constraints.
+
+Key features:
+- ArXiv paper search with customizable parameters
+- Metadata extraction and storage
+- PDF download with rate limiting
+- Robust error handling and logging
+"""
+
 import logging
-import os # Cet import n'est plus utilisé directement, peut être enlevé si non nécessaire ailleurs
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import List, Dict, Any, Optional
+import json
+
+import arxiv
 
 from config.settings import settings
 
@@ -19,227 +33,213 @@ def search_arxiv_papers(
     query: str = settings.ARXIV_DEFAULT_QUERY,
     max_results: int = settings.ARXIV_MAX_RESULTS,
     sort_by: str = settings.ARXIV_SORT_BY,
-    sort_order: str = settings.ARXIV_SORT_ORDER,
+    sort_order: str = settings.ARXIV_SORT_ORDER
 ) -> List[arxiv.Result]:
     """
-    Searches for papers on ArXiv based on a query and other criteria.
-    (Contenu de la fonction inchangé)
-    """
-    logger.info(
-        f"Searching ArXiv with query='{query}', max_results={max_results}, "
-        f"sort_by='{sort_by}', sort_order='{sort_order}'"
-    )
-
-    if sort_by.lower() == "relevance":
-        sort_criterion = arxiv.SortCriterion.Relevance
-    elif sort_by.lower() == "lastupdateddate":
-        sort_criterion = arxiv.SortCriterion.LastUpdatedDate
-    elif sort_by.lower() == "submitteddate":
-        sort_criterion = arxiv.SortCriterion.SubmittedDate
-    else:
-        logger.warning(
-            f"Invalid sort_by value: {sort_by}. Defaulting to Relevance."
-        )
-        sort_criterion = arxiv.SortCriterion.Relevance
-
-    if sort_order.lower() == "ascending":
-        order_criterion = arxiv.SortOrder.Ascending
-    elif sort_order.lower() == "descending":
-        order_criterion = arxiv.SortOrder.Descending
-    else:
-        logger.warning(
-            f"Invalid sort_order value: {sort_order}. Defaulting to Descending."
-        )
-        order_criterion = arxiv.SortOrder.Descending
+    Search for papers on ArXiv using the provided query and parameters.
     
-    search_client = arxiv.Client(
-        page_size = 100, 
-        delay_seconds = 5, 
-        num_retries = 3 
-    )
-
-    search = arxiv.Search(
-        query=query,
-        max_results=max_results,
-        sort_by=sort_criterion,
-        sort_order=order_criterion,
-    )
-
+    Args:
+        query: Search query string
+        max_results: Maximum number of results to return
+        sort_by: Field to sort results by (e.g., 'relevance', 'lastUpdatedDate')
+        sort_order: Sort order ('ascending' or 'descending')
+        
+    Returns:
+        List of ArXiv search results
+        
+    Raises:
+        arxiv.ArxivError: If there's an error with the ArXiv API
+    """
+    logger.info(f"Searching ArXiv with query: {query}")
+    logger.debug(f"Search parameters: max_results={max_results}, sort_by={sort_by}, sort_order={sort_order}")
+    
     try:
-        results = list(search_client.results(search))
-        logger.info(f"Found {len(results)} papers on ArXiv.")
+        search = arxiv.Search(
+            query=query,
+            max_results=max_results,
+            sort_by=getattr(arxiv.SortCriterion, sort_by),
+            sort_order=getattr(arxiv.SortOrder, sort_order)
+        )
+        
+        results = list(search.results())
+        logger.info(f"Found {len(results)} results for query: {query}")
         return results
+        
     except Exception as e:
-        logger.error(f"Error during ArXiv search: {e}", exc_info=True)
-        return []
+        logger.error(f"Error searching ArXiv: {e}", exc_info=True)
+        raise
 
-
-def download_paper_pdf(
-    paper: arxiv.Result, 
-    # MODIFICATION: output_dir est maintenant obligatoire ou doit être géré différemment si None
-    output_dir: Path 
-) -> Optional[Path]:
+def download_paper(
+    result: arxiv.Result,
+    pdf_dir: Path,
+    metadata_dir: Path
+) -> bool:
     """
-    Downloads the PDF of a single ArXiv paper.
-    Args:
-        paper (arxiv.Result): The ArXiv paper object.
-        output_dir (Path): The directory to save the PDF to. (RENDU OBLIGATOIRE OU GÉRÉ)
-    """
-    if not output_dir:
-        logger.error("Output directory not provided for PDF download.")
-        return None
-    output_dir.mkdir(parents=True, exist_ok=True) # S'assurer que le répertoire existe
-
-    paper_id = paper.entry_id.split("/")[-1].split("v")[0]
-    filename = f"{paper_id}.pdf"
-    filepath = output_dir / filename
-
-    if filepath.exists():
-        logger.info(f"PDF already exists for paper {paper_id}: {filepath}")
-        return filepath
-
-    logger.info(f"Downloading PDF for paper {paper_id} ('{paper.title[:50]}...') to {filepath}")
-    try:
-        paper.download_pdf(dirpath=str(output_dir), filename=filename)
-        logger.info(f"Successfully downloaded {filepath}")
-        time.sleep(settings.ARXIV_DOWNLOAD_DELAY_SECONDS)
-        return filepath
-    except Exception as e:
-        logger.error(
-            f"Failed to download PDF for paper {paper_id} ('{paper.title[:50]}...'): {e}",
-            exc_info=True,
-        )
-        return None
-
-def save_paper_metadata(
-    paper: arxiv.Result, 
-    # MODIFICATION: output_dir est maintenant obligatoire ou doit être géré différemment si None
-    output_dir: Path 
-) -> Optional[Path]:
-    """
-    Saves the metadata of a single ArXiv paper to a JSON file.
-    Args:
-        paper (arxiv.Result): The ArXiv paper object.
-        output_dir (Path): The directory to save the metadata JSON to. (RENDU OBLIGATOIRE OU GÉRÉ)
-    """
-    if not output_dir:
-        logger.error("Output directory not provided for metadata saving.")
-        return None
-    output_dir.mkdir(parents=True, exist_ok=True) # S'assurer que le répertoire existe
-
-    paper_id = paper.entry_id.split("/")[-1].split("v")[0]
-    metadata_filename = f"{paper_id}_metadata.json"
-    filepath = output_dir / metadata_filename
-
-    if filepath.exists():
-        logger.info(f"Metadata file already exists for paper {paper_id}: {filepath}")
-        return filepath
-
-    logger.info(f"Saving metadata for paper {paper_id} ('{paper.title[:50]}...') to {filepath}")
+    Download a single paper's PDF and metadata.
     
-    metadata = {
-        "entry_id": paper.entry_id,
-        "title": paper.title,
-        "authors": [str(author) for author in paper.authors],
-        "summary": paper.summary,
-        "comment": paper.comment,
-        "journal_ref": paper.journal_ref,
-        "doi": paper.doi,
-        "primary_category": paper.primary_category,
-        "categories": paper.categories,
-        "links": [link.href for link in paper.links],
-        "pdf_url": paper.pdf_url,
-        "published": paper.published.isoformat() if paper.published else None,
-        "updated": paper.updated.isoformat() if paper.updated else None,
+    Args:
+        result: ArXiv search result
+        pdf_dir: Directory to save PDF files
+        metadata_dir: Directory to save metadata files
+        
+    Returns:
+        True if download was successful, False otherwise
+    """
+    arxiv_id = result.entry_id.split('/')[-1]
+    pdf_filename = f"{arxiv_id}.pdf"
+    pdf_path = pdf_dir / pdf_filename
+    metadata_path = metadata_dir / f"{arxiv_id}_metadata.json"
+    
+    # Skip if both files already exist
+    if pdf_path.exists() and metadata_path.exists():
+        logger.info(f"Paper {arxiv_id} already downloaded, skipping")
+        return True
+        
+    try:
+        # Download PDF
+        if not pdf_path.exists():
+            logger.info(f"Downloading PDF for {arxiv_id}")
+            result.download_pdf(dirpath=str(pdf_dir), filename=pdf_filename)
+            logger.debug(f"PDF downloaded to {pdf_path}")
+
+            # Check if the downloaded PDF is valid (exists and is not empty)
+            if not pdf_path.exists() or pdf_path.stat().st_size == 0:
+                # Log error and raise an exception to be caught by the generic handler below
+                # This ensures cleanup of metadata and consistent error reporting
+                logger.error(f"PDF for {arxiv_id} is missing or empty after download attempt.")
+                raise IOError(f"PDF for {arxiv_id} is missing or empty after download attempt.")
+            
+        # Save metadata
+        if not metadata_path.exists():
+            logger.info(f"Saving metadata for {arxiv_id}")
+            metadata = {
+                "entry_id": result.entry_id,
+                "title": result.title,
+                "authors": [author.name for author in result.authors],
+                "published": result.published.isoformat(),
+                "summary": result.summary,
+                "pdf_url": result.pdf_url,
+                "primary_category": result.primary_category,
+                "categories": result.categories,
+                "comment": result.comment,
+                "journal_ref": result.journal_ref,
+                "doi": result.doi,
+                "links": [link.href for link in result.links]
+            }
+            
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            logger.debug(f"Metadata saved to {metadata_path}")
+            
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error downloading paper {arxiv_id}: {e}", exc_info=True)
+        # Clean up partial downloads
+        if pdf_path.exists():
+            pdf_path.unlink()
+        if metadata_path.exists():
+            metadata_path.unlink()
+        return False
+
+def download_papers(
+    results: List[arxiv.Result],
+    pdf_dir: Path,
+    metadata_dir: Path,
+    delay: float = float(settings.ARXIV_DOWNLOAD_DELAY_SECONDS)
+) -> Dict[str, int]:
+    """
+    Download multiple papers with rate limiting.
+    
+    Args:
+        results: List of ArXiv search results
+        pdf_dir: Directory to save PDF files
+        metadata_dir: Directory to save metadata files
+        delay: Delay between downloads in seconds
+        
+    Returns:
+        Dictionary with download statistics
+    """
+    stats = {
+        "total": len(results),
+        "successful": 0,
+        "failed": 0,
+        "skipped": 0
     }
     
-    try:
-        with open(filepath, "w", encoding="utf-8") as f:
-            import json # Importation locale au cas où
-            json.dump(metadata, f, ensure_ascii=False, indent=4)
-        logger.info(f"Successfully saved metadata {filepath}")
-        return filepath
-    except Exception as e:
-        logger.error(
-            f"Failed to save metadata for paper {paper_id} ('{paper.title[:50]}...'): {e}",
-            exc_info=True,
-        )
-        return None
-
-
-def download_pipeline(
-    query: str, # Rendu non optionnel, car nécessaire pour search_arxiv_papers
-    max_results: int, # Rendu non optionnel
-    pdf_output_dir: Path, # CHEMIN COMPLET OBLIGATOIRE
-    metadata_output_dir: Path, # CHEMIN COMPLET OBLIGATOIRE
-    sort_by: str = settings.ARXIV_SORT_BY, # Garde les valeurs par défaut de settings pour sort
-    sort_order: str = settings.ARXIV_SORT_ORDER
-) -> Dict[str, List[Path]]:
-    """
-    Full pipeline to search for papers on ArXiv, download their PDFs, and save their metadata.
-    The pdf_output_dir and metadata_output_dir are now expected to be full, specific paths.
-    """
-    # S'assurer que les répertoires de sortie existent (au cas où ils seraient passés directement)
-    pdf_output_dir.mkdir(parents=True, exist_ok=True)
-    metadata_output_dir.mkdir(parents=True, exist_ok=True)
-
-    papers_to_process = search_arxiv_papers(query, max_results, sort_by, sort_order)
+    # Create output directories
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    metadata_dir.mkdir(parents=True, exist_ok=True)
     
-    downloaded_pdf_paths: List[Path] = []
-    saved_metadata_paths: List[Path] = []
-
-    if not papers_to_process:
-        logger.warning("No papers found or an error occurred during search. Skipping download.")
-        return {"pdfs": [], "metadata": []}
-
-    logger.info(f"Starting download and metadata saving for {len(papers_to_process)} papers.")
-    for i, paper_result in enumerate(papers_to_process):
-        logger.info(f"Processing paper {i+1}/{len(papers_to_process)}: {paper_result.entry_id}")
+    for i, result in enumerate(results, 1):
+        arxiv_id = result.entry_id.split('/')[-1]
+        logger.info(f"Processing paper {i}/{len(results)}: {arxiv_id}")
         
-        # Passe les chemins complets aux fonctions internes
-        pdf_path = download_paper_pdf(paper_result, pdf_output_dir)
-        if pdf_path:
-            downloaded_pdf_paths.append(pdf_path)
-        
-        metadata_path = save_paper_metadata(paper_result, metadata_output_dir)
-        if metadata_path:
-            saved_metadata_paths.append(metadata_path)
+        # Check if already downloaded
+        if (pdf_dir / f"{arxiv_id}.pdf").exists() and \
+           (metadata_dir / f"{arxiv_id}_metadata.json").exists():
+            logger.info(f"Paper {arxiv_id} already downloaded, skipping")
+            stats["skipped"] += 1
+            continue
             
-    logger.info(
-        f"Finished ArXiv download pipeline. Downloaded {len(downloaded_pdf_paths)} PDFs "
-        f"and saved {len(saved_metadata_paths)} metadata files."
-    )
-    return {"pdfs": downloaded_pdf_paths, "metadata": saved_metadata_paths}
+        # Download with rate limiting
+        if download_paper(result, pdf_dir, metadata_dir):
+            stats["successful"] += 1
+        else:
+            stats["failed"] += 1
+            
+        if i < len(results):
+            logger.debug(f"Waiting {delay:.1f} seconds before next download")
+            time.sleep(delay)
+            
+    logger.info("Download statistics:")
+    logger.info(f"  Total papers: {stats['total']}")
+    logger.info(f"  Successfully downloaded: {stats['successful']}")
+    logger.info(f"  Failed downloads: {stats['failed']}")
+    logger.info(f"  Skipped (already downloaded): {stats['skipped']}")
+    
+    return stats
 
+def _create_test_directories() -> tuple[Path, Path]:
+    """
+    Create test directories for paper downloads.
+    
+    Returns:
+        Tuple of (PDF directory path, metadata directory path)
+    """
+    test_base_data_dir = Path(settings.DATA_DIR) / "corpus" / "test_downloader_corpus"
+    test_pdf_output_dir = test_base_data_dir / "pdfs"
+    test_metadata_output_dir = test_base_data_dir / "metadata"
+    
+    test_pdf_output_dir.mkdir(parents=True, exist_ok=True)
+    test_metadata_output_dir.mkdir(parents=True, exist_ok=True)
+    
+    return test_pdf_output_dir, test_metadata_output_dir
 
 if __name__ == "__main__":
     from config.logging_config import setup_logging
-    setup_logging(level="INFO") 
-
-    logger.info("Starting ArXiv downloader test run (with modified path handling)...")
+    setup_logging(level="INFO")
     
-    # Pour tester, on doit définir un répertoire de base pour ce test
-    test_base_data_dir = Path(settings.DATA_DIR) / "corpus" / "test_downloader_corpus"
-    test_pdf_dir = test_base_data_dir / "pdfs"
-    test_metadata_dir = test_base_data_dir / "metadata"
-
-    # S'assurer que ces répertoires de test sont créés pour cet exemple
-    test_pdf_dir.mkdir(parents=True, exist_ok=True)
-    test_metadata_dir.mkdir(parents=True, exist_ok=True)
-
-    logger.info(f"Test PDF output directory: {test_pdf_dir}")
-    logger.info(f"Test Metadata output directory: {test_metadata_dir}")
-
-    results_paths = download_pipeline(
-        query="explainable artificial intelligence", 
-        max_results=1, # Juste 1 pour un test rapide
-        pdf_output_dir=test_pdf_dir,
-        metadata_output_dir=test_metadata_dir
-    )
-
-    logger.info(f"Test run completed. PDFs downloaded: {len(results_paths['pdfs'])}")
-    for path in results_paths['pdfs']:
-        logger.info(f" - {path}")
-    logger.info(f"Metadata files saved: {len(results_paths['metadata'])}")
-    for path in results_paths['metadata']:
-        logger.info(f" - {path}")
+    logger.info("Starting ArXiv downloader test run")
+    
+    # Create test directories
+    test_pdf_output_dir, test_metadata_output_dir = _create_test_directories()
+    
+    # Search for papers
+    try:
+        results = search_arxiv_papers(
+            query=settings.ARXIV_DEFAULT_QUERY,
+            max_results=settings.ARXIV_MAX_RESULTS
+        )
+        
+        # Download papers
+        stats = download_papers(
+            results=results,
+            pdf_dir=test_pdf_output_dir,
+            metadata_dir=test_metadata_output_dir
+        )
+        
+    except Exception as e:
+        logger.error(f"Test run failed: {e}", exc_info=True)
+    
+    logger.info("ArXiv downloader test run finished")

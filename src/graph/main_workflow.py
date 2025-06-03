@@ -1,14 +1,27 @@
-# src/graph/main_workflow.py
+"""
+Main Workflow Module
+
+This module implements the main workflow for the research assistant system using LangGraph.
+It defines the state management, node functions, and routing logic for the research process.
+
+Key features:
+- State management with GraphState
+- Agent node execution and routing
+- Tool integration and execution
+- Error handling and logging
+"""
+
 import logging
 import uuid
+import re
 from typing import TypedDict, Annotated, List, Optional, Dict, Any
-import operator 
-import datetime 
-import re # <--- AJOUT DE CET IMPORT
+import operator
+import datetime
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolNode, tools_condition 
+from langgraph.prebuilt import ToolNode, tools_condition
+from langchain.agents import AgentExecutor
 
 from config.settings import settings
 from src.agents.agent_architectures import (
@@ -18,27 +31,42 @@ from src.agents.agent_architectures import (
     create_synthesis_agent
 )
 from src.agents.tool_definitions import (
-    arxiv_search_tool, 
+    arxiv_search_tool,
     knowledge_base_retrieval_tool,
     document_deep_dive_analysis_tool
 )
-from src.graph.checkpointer import MongoDBSaver 
+from src.graph.checkpointer import MongoDBSaver
 
 logger = logging.getLogger(__name__)
 
 class GraphState(TypedDict):
-    messages: Annotated[List[BaseMessage], operator.add] 
+    """
+    Represents the state of the research workflow graph.
+    
+    Attributes:
+        messages: List of messages in the conversation
+        user_query: Original user query
+        research_plan: Generated research plan
+        arxiv_query_for_searcher: Query for ArXiv search
+        kb_query_for_analyzer: Query for knowledge base
+        arxiv_search_results_str: Results from ArXiv search
+        document_analysis_summary: Summary of document analysis
+        synthesis_output: Final synthesis output
+        error_message: Any error message
+    """
+    messages: Annotated[List[BaseMessage], operator.add]
     user_query: str
     research_plan: Optional[str] = None
-    arxiv_query_for_searcher: Optional[str] = None # Peut être déprécié si on extrait directement du plan
+    arxiv_query_for_searcher: Optional[str] = None
     kb_query_for_analyzer: Optional[str] = None
-    arxiv_search_results_str: Optional[str] = None 
-    document_analysis_summary: Optional[str] = None 
+    arxiv_search_results_str: Optional[str] = None
+    document_analysis_summary: Optional[str] = None
     synthesis_output: Optional[str] = None
     error_message: Optional[str] = None
 
+# Initialize tools and agents
 all_tools = [
-    arxiv_search_tool, 
+    arxiv_search_tool,
     knowledge_base_retrieval_tool,
     document_deep_dive_analysis_tool
 ]
@@ -46,413 +74,589 @@ tool_node = ToolNode(all_tools)
 
 planner_agent_executor = create_research_planner_agent()
 arxiv_search_agent_executor = create_arxiv_search_agent()
-doc_analysis_agent_executor = create_document_analysis_agent() 
+doc_analysis_agent_executor = create_document_analysis_agent()
 synthesis_agent_executor = create_synthesis_agent()
 
-def run_agent_node(state: GraphState, agent_executor, node_name: str, input_override: Optional[str] = None) -> Dict[str, Any]:
-    logger.debug(f"--- EXECUTING AGENT NODE: {node_name} ---")
-    current_messages = state["messages"]
-    if input_override:
-        messages_for_agent = list(current_messages) + [HumanMessage(content=input_override)]
-    else:
-        messages_for_agent = current_messages
-
+def run_agent_node(state: GraphState, agent_executor: AgentExecutor, agent_name: str) -> Dict[str, Any]:
+    """Run an agent node and return its output."""
     try:
-        response = agent_executor.invoke({"messages": messages_for_agent})
-        output_content = str(response.get("output", ""))
-        agent_tool_calls = response.get("tool_calls") 
-        if not agent_tool_calls and hasattr(response, 'tool_calls'):
-            agent_tool_calls = response.tool_calls
-
-        if agent_tool_calls:
-            ai_message_with_tool_calls = AIMessage(content=output_content, tool_calls=agent_tool_calls, name=node_name)
-            return {"messages": [ai_message_with_tool_calls]}
-        else:
-            return {"messages": [AIMessage(content=output_content, name=node_name)]}
+        logger.info(f">>> {agent_name} <<<")
+        # Only pass the expected keys to the agent
+        agent_input = {
+            "messages": state["messages"],
+            "agent_scratchpad": state.get("agent_scratchpad", [])
+        }
+        response = agent_executor.invoke(agent_input)
+        
+        if response.get("messages"):
+            for msg in response["messages"]:
+                if isinstance(msg, AIMessage):
+                    logger.info(f"{agent_name} Output:\n{msg.content}")
+                elif isinstance(msg, HumanMessage):
+                    logger.debug(f"Human Input: {msg.content}")
+        
+        return response
     except Exception as e:
-        logger.error(f"Error in agent node {node_name}: {e}", exc_info=True)
-        error_content = f"Error in {node_name}: {str(e)}"
-        return {"messages": [AIMessage(content=error_content, name="error_handler")], "error_message": error_content}
+        logger.error(f"Error in {agent_name}: {e}")
+        raise
 
 def planner_node(state: GraphState) -> Dict[str, Any]:
-    logger.info(">>> Planner Node <<<")
+    """Execute the research planner node."""
+    logger.info(">>> Research Planner Node <<<")
+    
+    # Run planner agent
     update = run_agent_node(state, planner_agent_executor, "ResearchPlannerAgent")
-    if update.get("messages") and isinstance(update["messages"][-1], AIMessage):
-        plan_content = update["messages"][-1].content
-        logger.info(f"Research Plan Generated by Planner:\n{plan_content}")
-        return {**update, "research_plan": plan_content} 
-    return update
+    
+    # Extract plan from the last AIMessage
+    plan = ""
+    if update.get("messages"):
+        for msg in reversed(update.get("messages", [])): # Iterate in reverse to find the last AIMessage
+            if isinstance(msg, AIMessage) and msg.content:
+                plan = msg.content
+                logger.info(f"Research Plan Output:\n{plan}")
+                break # Found the last AIMessage with content
 
-# MODIFICATION DE arxiv_search_node_wrapper
-def arxiv_search_node_wrapper(state: GraphState) -> Dict[str, Any]:
+    if not plan and "output" in update: # Fallback to "output" key
+        plan = str(update["output"])
+        logger.info(f"Research Plan Output (from 'output' key):\n{plan}")
+
+    if not plan:
+        logger.error("No plan generated by ResearchPlannerAgent")
+        return {
+            # Still return previous messages if an error occurs, plus the error message
+            "messages": state.get("messages", []) + [
+                AIMessage(content="Failed to generate a research plan. Please try again.")
+            ],
+            "error_message": "No plan generated",
+            "research_plan": None # Ensure research_plan is None on error
+        }
+        
+    # Extract ArXiv query (if any)
+    arxiv_query = extract_arxiv_query(plan)
+    
+    return {
+        "research_plan": plan,
+        "arxiv_query_for_searcher": arxiv_query,
+        "messages": [AIMessage(content=plan)], # Return only the new plan message
+        "error_message": None # Clear any previous error
+    }
+
+def extract_arxiv_query(plan: str) -> str:
+    """
+    Extract ArXiv query from research plan.
+    
+    Args:
+        plan: Research plan text
+        
+    Returns:
+        Extracted ArXiv query or empty string
+    """
+    if not plan:
+        return ""
+        
+    plan_lines = plan.splitlines()
+    in_search_queries_section = False
+    extracted_query = ""
+    
+    for line in plan_lines:
+        line_lower = line.lower()
+        
+        # Check for search queries section
+        if "search queries:" in line_lower or "requêtes de recherche:" in line_lower:
+            in_search_queries_section = True
+            continue
+            
+        # Extract query from search queries section
+        if in_search_queries_section and "arxiv" in line_lower:
+            match = re.search(r"\"([^\"]+)\"", line)
+            if match:
+                extracted_query = match.group(1)
+                if "arxiv" in extracted_query.lower() or "arxiv" in line_lower.split(extracted_query.lower())[-1]:
+                    logger.info(f"Extracted explicit ArXiv query from plan: '{extracted_query}'")
+                    break
+                else:
+                    extracted_query = ""
+            else:
+                potential_query = line.strip().lstrip('-').strip()
+                if "arxiv" in potential_query.lower():
+                    extracted_query = potential_query
+                    logger.info(f"Extracted ArXiv query (no quotes): '{extracted_query}'")
+                    break
+                    
+        if extracted_query and in_search_queries_section:
+            break
+            
+    # Fallback: Check for ArXiv mention in plan
+    if not extracted_query and "arxiv" in plan.lower():
+        match = re.search(r"recherche sur arxiv[^:]*:\s*\"([^\"]+)\"", plan, re.IGNORECASE)
+        if match:
+            extracted_query = match.group(1)
+            logger.info(f"Extracted ArXiv query from plan: '{extracted_query}'")
+            
+    return extracted_query
+
+async def arxiv_search_node_wrapper(state: GraphState) -> Dict[str, Any]:
+    """Wrapper for the ArXiv search node."""
     logger.info(">>> ArXiv Search Node <<<")
     
-    research_plan = state.get("research_plan", "")
-    user_query = state.get("user_query", "")
+    # Create search prompt from research plan and user query
+    # Prefer arxiv_query_for_searcher if available from planner, else fallback to user_query
+    query_for_search = state.get("arxiv_query_for_searcher") or state.get("user_query", "")
+    if not query_for_search:
+        logger.error("No query available for ArXiv search (neither arxiv_query_for_searcher nor user_query is set).")
+        return {
+            "messages": [AIMessage(content="Cannot perform ArXiv search: No query provided.")],
+            "error": "No query for ArXiv search",
+            "arxiv_search_results_str": None
+        }
+
+    search_prompt = f"Search for papers about: {query_for_search}"
+    logger.debug(f"ArXiv search prompt: {search_prompt}")
     
-    extracted_query_for_tool = ""
-    if research_plan:
-        # Tente d'extraire la première requête ArXiv listée sous "Search Queries:"
-        # ou une requête contenant "ArXiv"
-        plan_lines = research_plan.splitlines()
-        in_search_queries_section = False
-        for line in plan_lines:
-            line_lower = line.lower()
-            if "search queries:" in line_lower or "requêtes de recherche:" in line_lower : # Support pour le français
-                in_search_queries_section = True
-                continue # Passer à la ligne suivante pour chercher la requête
-            
-            if in_search_queries_section and "arxiv" in line_lower:
-                # Tenter d'extraire ce qui est entre guillemets, s'il y en a
-                match = re.search(r"\"([^\"]+)\"", line)
-                if match:
-                    extracted_query_for_tool = match.group(1)
-                    # S'assurer que la requête extraite est bien pour ArXiv
-                    if "arxiv" in extracted_query_for_tool.lower() or "arxiv" in line_lower.split(extracted_query_for_tool.lower())[-1]:
-                        logger.info(f"Extracted explicit ArXiv query from plan's 'Search Queries' section: '{extracted_query_for_tool}'")
-                        break 
-                    else: # La requête entre guillemets ne mentionne pas ArXiv, continuer à chercher
-                        extracted_query_for_tool = "" 
-                else: # Pas de guillemets, prendre la ligne si elle semble être une requête pour ArXiv
-                    potential_query = line.strip().lstrip('-').strip()
-                    if "arxiv" in potential_query.lower():
-                        extracted_query_for_tool = potential_query
-                        logger.info(f"Extracted ArXiv query from plan's 'Search Queries' section (no quotes): '{extracted_query_for_tool}'")
-                        break
-            # Si on a trouvé une requête dans la section "Search Queries", on arrête la recherche
-            if extracted_query_for_tool and in_search_queries_section:
-                break
+    # Prepare agent input, ensuring messages key is present for run_agent_node
+    agent_input_state = state.copy()
+    agent_input_state["messages"] = [HumanMessage(content=search_prompt)] # Agent gets focused input
+    agent_input_state.pop("agent_scratchpad", None) # Clear scratchpad for this specific call
+
+    try:
+        # Run the ArXiv search agent
+        logger.info(">>> ArxivSearchAgent <<<")
+        # Pass the agent_input_state which has a focused messages list
+        update = run_agent_node(agent_input_state, arxiv_search_agent_executor, "ArxivSearchAgent")
         
-        # Fallback si aucune requête ArXiv n'a été trouvée dans la section "Search Queries"
-        # mais que "ArXiv" est mentionné ailleurs dans le plan (ex: sources d'information)
-        if not extracted_query_for_tool and "arxiv" in research_plan.lower():
-            match = re.search(r"recherche sur arxiv[^:]*:\s*\"([^\"]+)\"", research_plan, re.IGNORECASE)
-            if match:
-                extracted_query_for_tool = match.group(1)
-                logger.info(f"Extracted ArXiv query from plan (Information Sources section): '{extracted_query_for_tool}'")
+        logger.debug(f"Raw response from ArxivSearchAgent: {update}")
+        
+        # Extract search results
+        search_results_content = []
+        if update.get("messages"):
+            for msg in update.get("messages", []):
+                if isinstance(msg, ToolMessage):
+                    logger.debug(f"Found tool message with content: {msg.content}")
+                    search_results_content.append(msg.content)
+                elif isinstance(msg, AIMessage) and msg.content: # Could be direct AI response if tool use failed/skipped
+                    logger.debug(f"Found AI message with content: {msg.content}")
+                    search_results_content.append(msg.content)
+        
+        if not search_results_content and 'output' in update and update['output']:
+            logger.info("No ToolMessage/AIMessage with content found, using 'output' key from agent result.")
+            search_results_content = [update['output']]
+        
+        if not search_results_content:
+            logger.error("No search results found in ArxivSearchAgent response")
+            return {
+                "messages": [AIMessage(content="ArXiv Search: Failed to get search results.")],
+                "error": "No search results from ArxivSearchAgent",
+                "arxiv_search_results_str": None
+            }
+        
+        formatted_results = format_arxiv_results(search_results_content)
+        logger.debug(f"Formatted ArXiv search results: {formatted_results}")
+        
+        num_papers = len(formatted_results.split("\n\n---\n\n")) if formatted_results else 0
+        
+        return {
+            "arxiv_search_results_str": formatted_results,
+            "messages": [
+                AIMessage(content=f"ArXiv Search: Found {num_papers} relevant papers.\n\n{formatted_results}")
+            ],
+            "error_message": None # Clear any previous error
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in ArxivSearchAgent execution: {str(e)}", exc_info=True)
+        return {
+            "messages": [AIMessage(content=f"Error during ArXiv search: {str(e)}")],
+            "error_message": str(e),
+            "arxiv_search_results_str": None
+        }
 
-
-    if not extracted_query_for_tool:
-        # Si toujours aucune requête extraite, on se base sur la requête utilisateur globale
-        # et on demande à l'agent de la formuler pour ArXiv.
-        logger.warning(f"Could not extract a specific ArXiv query from the plan. Guiding agent with user query: '{user_query}'")
-        instruction_to_agent = (
-            f"Based on the user query: '{user_query}' and the research plan (if available):\n{research_plan}\n\n"
-            "Please formulate the best single search query string for ArXiv and use your 'arxiv_search_tool' with it. "
-            "Focus on finding recent relevant papers. Return the direct findings from the tool."
-        )
-    else:
-        # Instruction plus directe si une requête a été extraite
-        instruction_to_agent = (
-             f"Please use your 'arxiv_search_tool' to search ArXiv with the query: \"{extracted_query_for_tool}\". "
-             f"The full research plan is provided below for context. Return the direct findings from the tool."
-             f"\n\nFull Research Plan (for context):\n{research_plan}"
-        )
+def format_arxiv_results(tool_output: Any) -> str:
+    """
+    Format ArXiv search results for analysis.
     
-    update = run_agent_node(state, arxiv_search_agent_executor, "ArxivSearchAgent", input_override=instruction_to_agent)
+    Args:
+        tool_output: Raw tool output
+        
+    Returns:
+        Formatted results string
+    """
+    if isinstance(tool_output, list) and tool_output:
+        formatted_results = []
+        for item in tool_output:
+            if isinstance(item, dict):
+                title = item.get('title', 'N/A')
+                summary = item.get('summary', 'N/A')
+                authors = ", ".join(item.get('authors', []))
+                pdf_url = item.get('pdf_url', '#')
+                formatted_results.append(
+                    f"Title: {title}\nAuthors: {authors}\nSummary: {summary}\nLink: {pdf_url}"
+                )
+            else:
+                formatted_results.append(str(item))
+        return "\n\n---\n\n".join(formatted_results)
+    return str(tool_output)
 
-    # Gérer la sortie de l'agent ArXiv.
-    # Si l'agent a appelé un outil, le ToolNode s'en chargera. La sortie de l'outil sera dans un ToolMessage.
-    # Si l'agent a répondu directement (sans appel d'outil, ou après avoir traité l'outil en interne),
-    # son AIMessage.content sera utilisé.
-    if update.get("messages"):
-        last_message = update["messages"][-1]
-        if isinstance(last_message, AIMessage) and not last_message.tool_calls:
-            # L'agent a répondu directement, on stocke son contenu comme résultat de recherche ArXiv
-            logger.info(f"ArxivSearchAgent responded directly. Storing its content in 'arxiv_search_results_str'.")
-            return {**update, "arxiv_search_results_str": last_message.content}
-        elif isinstance(last_message, AIMessage) and last_message.tool_calls:
-            # L'agent a demandé un appel d'outil. Le ToolNode prendra le relais.
-            # On ne met PAS à jour arxiv_search_results_str ici; cela sera fait à partir du ToolMessage.
-            logger.info(f"ArxivSearchAgent made tool calls: {last_message.tool_calls}")
-            return update # Le graphe passera au ToolNode
-            
-    return update
-
-# MODIFICATION DE document_analysis_node_wrapper pour mieux utiliser les résultats
 def document_analysis_node_wrapper(state: GraphState) -> Dict[str, Any]:
+    """Execute the document analysis node."""
     logger.info(">>> Document Analysis Node <<<")
     
-    user_query = state.get("user_query", "")
-    research_plan = state.get("research_plan", "")
+    arxiv_results = state.get("arxiv_search_results_str", "")
+    if not arxiv_results:
+        logger.warning("No ArXiv results found for analysis")
+        # Return a dictionary with only the new error message and relevant state updates
+        return {
+            "messages": [AIMessage(content="Document Analysis: No ArXiv results available for analysis.")],
+            "error_message": "No ArXiv results available for analysis",
+            "document_analysis_summary": None # Ensure summary is None on error
+        }
     
-    # Chercher les résultats d'ArXiv :
-    # 1. Dans le champ dédié `arxiv_search_results_str` (si ArxivSearchAgent a répondu directement)
-    # 2. Dans le dernier ToolMessage si ArxivSearchAgent a utilisé son outil
-    arxiv_results_context = state.get("arxiv_search_results_str", "")
-    
-    if not arxiv_results_context: # Si le champ dédié est vide, chercher dans les messages
-        for msg in reversed(state.get("messages", [])):
-            if isinstance(msg, ToolMessage) and msg.name == "arxiv_search_tool":
-                tool_output = msg.content
-                if isinstance(tool_output, list) and tool_output: # L'outil retourne une liste de dicts
-                    # Formater pour l'instruction
-                    formatted_results = []
-                    for item in tool_output:
-                        title = item.get('title', 'N/A')
-                        summary = item.get('summary', 'N/A')
-                        authors = ", ".join(item.get('authors', []))
-                        pdf_url = item.get('pdf_url', '#')
-                        formatted_results.append(f"Title: {title}\nAuthors: {authors}\nSummary: {summary}\nLink: {pdf_url}")
-                    arxiv_results_context = "\n\n---\n\n".join(formatted_results)
-                    logger.info(f"Using content from arxiv_search_tool ToolMessage for DocumentAnalysisAgent.")
-                else: # Si le contenu n'est pas une liste ou est vide
-                    arxiv_results_context = str(tool_output)
-                    logger.info(f"Using raw string content from arxiv_search_tool ToolMessage: {arxiv_results_context[:200]}...")
-                break # Arrêter dès qu'on a trouvé le ToolMessage pertinent
+    analysis_prompt = f"""Based on the following ArXiv search results, provide a comprehensive analysis of the latest advancements in machine learning:
 
-    instruction_parts = []
-    instruction_parts.append(f"User Query: {user_query}")
-    if research_plan:
-        instruction_parts.append(f"\n\nResearch Plan:\n{research_plan}")
+{arxiv_results}
 
-    if arxiv_results_context:
-        instruction_parts.append(f"\n\nRelevant Information Found (e.g., from ArXiv Search):\n{arxiv_results_context}")
-        instruction_parts.append("\n\nTask: Based on ALL the information above (User Query, Research Plan, and Search Results), please perform your analysis. ")
-        instruction_parts.append("Extract key insights, methodologies, findings, and limitations from the search results relevant to the user query and research plan. ")
-        instruction_parts.append("If the provided information is sufficient, synthesize these points. If specific details are missing or unclear from the summaries, note that. ")
-    else:
-        instruction_parts.append("\n\nTask: No specific search results were provided from a preceding ArXiv search step, or the search was skipped or yielded no results. ")
-        instruction_parts.append(f"Please attempt to answer the user query and fulfill the research plan using the internal knowledge base. Use the 'knowledge_base_retrieval_tool' with appropriate search terms derived from the query and plan. ")
-    
-    instruction_parts.append("If a deep, structured analysis of a *single specific document* is mentioned in the plan AND its content is available (e.g., from the search results or can be fetched), consider using the 'document_deep_dive_analysis_tool'.")
-    final_instruction = "\n".join(instruction_parts)
-    
-    update = run_agent_node(state, doc_analysis_agent_executor, "DocumentAnalysisAgent", input_override=final_instruction)
-    
-    last_message = update.get("messages", [])[-1] if update.get("messages") else None
-    if isinstance(last_message, AIMessage) and not last_message.tool_calls:
-        analysis_summary = last_message.content
-        logger.info(f"Document Analysis Output (summary or deep dive report): {analysis_summary[:300]}...")
-        return {**update, "document_analysis_summary": analysis_summary} 
-    return update
+Please structure your analysis to include:
+1. Key breakthroughs and innovations
+2. Emerging trends and methodologies
+3. Practical applications and use cases
+4. Challenges and limitations
+5. Future directions and opportunities
 
-def synthesis_node_wrapper(state: GraphState) -> Dict[str, Any]:
-    logger.info(">>> Synthesis Node <<<")
-    update = run_agent_node(state, synthesis_agent_executor, "SynthesisAgent") 
-    if update.get("messages") and isinstance(update["messages"][-1], AIMessage):
-        final_output = update["messages"][-1].content
-        return {**update, "synthesis_output": final_output}
-    return update
+Focus on providing clear, actionable insights and explanations."""
+    logger.debug(f"Analysis prompt for DocumentAnalyzerAgent: {analysis_prompt}")
+
+    # Prepare a focused input for the DocumentAnalyzerAgent
+    doc_analysis_agent_input_state = {
+        "messages": [HumanMessage(content=analysis_prompt)],
+        # agent_scratchpad is not explicitly passed if not needed or handled by run_agent_node's defaults
+    }
+
+    update = run_agent_node(
+        doc_analysis_agent_input_state, # Pass the focused dict, not the full GraphState
+        doc_analysis_agent_executor,
+        "DocumentAnalyzerAgent"
+    )
+    
+    logger.debug(f"Raw response from DocumentAnalyzerAgent: {update}")
+    
+    analysis = ""
+    # Try to extract analysis from AIMessage first
+    if update.get("messages"):
+        for msg in reversed(update.get("messages", [])):
+            if isinstance(msg, AIMessage) and msg.content:
+                analysis = msg.content
+                logger.debug(f"Extracted analysis from AIMessage: {analysis}")
+                break
+    
+    # Fallback to 'output' key if no AIMessage content found
+    if not analysis and update.get("output"):
+        analysis = str(update["output"])
+        logger.debug(f"Extracted analysis from agent 'output' key: {analysis}")
+
+    if not analysis:
+        logger.error("No analysis produced by DocumentAnalyzerAgent. Agent response: %s", update)
+        return {
+            "messages": [AIMessage(content="Document Analysis: Failed to produce output.")],
+            "error_message": "Document analysis failed to produce output",
+            "document_analysis_summary": None # Ensure summary is None on error
+        }
+    
+    logger.info(f"Document Analysis Output:\n{analysis}")
+    
+    # Return a dictionary with only the new AIMessage and relevant state updates
+    return {
+        "document_analysis_summary": analysis,
+        "messages": [AIMessage(content=f"Document Analysis Result:\n\n{analysis}")],
+        "error_message": None # Clear any previous error
+    }
+
+async def synthesis_node(state: GraphState) -> Dict[str, Any]:
+    """Synthesize the final output from all collected information."""
+    try:
+        logger.info(">>> Synthesis Node <<<")
+        # Get the document analysis summary
+        analysis = state.get("document_analysis_summary", "")
+        if not analysis:
+            logger.warning("No document analysis summary found for synthesis")
+            return {
+                "messages": [AIMessage(content="Synthesis: No analysis available to synthesize.")],
+                "error_message": "No analysis available for synthesis",
+                "synthesis_output": None # Ensure synthesis_output is None
+            }
+
+        # Create synthesis prompt
+        synthesis_prompt = f"""Based on the following analysis, provide a comprehensive synthesis of the latest advancements in machine learning:
+
+{analysis}
+
+Please structure your response as a clear, well-organized summary that:
+1. Highlights the most significant recent developments
+2. Identifies key trends and breakthroughs
+3. Discusses real-world applications
+4. Addresses current challenges and future directions
+
+Focus on providing actionable insights and clear explanations."""
+
+        logger.debug(f"Synthesis prompt: {synthesis_prompt}")
+
+        # Get synthesis from LLM
+        synthesis_content = await get_llm_response(synthesis_prompt)
+        logger.info(f"Final Synthesis Output:\n{synthesis_content}")
+        
+        if synthesis_content == "No response generated" or "Error generating response:" in synthesis_content:
+             logger.error(f"Synthesis agent failed to produce a valid response: {synthesis_content}")
+             return {
+                "messages": [AIMessage(content=f"Synthesis: Failed to generate a valid synthesis. Details: {synthesis_content}")],
+                "error_message": f"Synthesis generation failed: {synthesis_content}",
+                "synthesis_output": None
+            }
+
+        return {
+            "synthesis_output": synthesis_content,
+            "messages": [AIMessage(content=f"Final Synthesis:\n\n{synthesis_content}")],
+            "error_message": None # Clear any previous error
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in synthesis node: {str(e)}", exc_info=True)
+        return {
+            "messages": [AIMessage(content=f"Synthesis: Error during synthesis execution: {str(e)}")],
+            "error_message": str(e),
+            "synthesis_output": None # Ensure synthesis_output is None
+        }
 
 def router_after_planner(state: GraphState) -> str:
+    """
+    Route after planner node execution.
+    
+    Args:
+        state: Current graph state
+        
+    Returns:
+        Next node to execute
+    """
     logger.info(">>> Router after Planner <<<")
+    
     if state.get("error_message"):
-        logger.error(f"Error detected in state: {state['error_message']}. Ending.")
+        logger.error(f"Error detected: {state['error_message']}. Ending.")
         return END 
     
-    plan = state.get("research_plan", "").lower() 
-    user_query_lower = state.get("user_query", "").lower()
+    # Always go to ArXiv search for machine learning queries
+    logger.info("Router decision: Go to ArXiv Search")
+    return "arxiv_searcher"
 
-    if "arxiv" in plan or "arxiv" in user_query_lower:
-        logger.info("Router decision: Go to ArXiv Search based on 'arxiv' keyword in plan or user query.")
-        return "arxiv_searcher"
-    else:
-        logger.info("Router decision: Go to Document Analysis (Knowledge Base) as 'arxiv' keyword not detected in plan or query.")
-        return "doc_analyzer"
+def router_after_arxiv_search(state: GraphState) -> str:
+    """
+    Route after ArXiv search node execution.
+    
+    Args:
+        state: Current graph state
+        
+    Returns:
+        Next node to execute
+    """
+    logger.info(">>> Router after ArXiv Search <<<")
+    
+    if state.get("error_message"):
+        logger.error(f"Error detected: {state['error_message']}. Ending.")
+        return END
+        
+    return "document_analyzer"
 
-workflow_v2_1 = StateGraph(GraphState)
-workflow_v2_1.add_node("planner", planner_node)
-workflow_v2_1.add_node("arxiv_searcher", arxiv_search_node_wrapper)
-workflow_v2_1.add_node("doc_analyzer", document_analysis_node_wrapper)
-workflow_v2_1.add_node("synthesizer", synthesis_node_wrapper)
-workflow_v2_1.add_node("tools_invoker", tool_node) # ToolNode pour exécuter les appels d'outils
+def router_after_document_analysis(state: GraphState) -> str:
+    """
+    Route after document analysis node execution.
+    
+    Args:
+        state: Current graph state
+        
+    Returns:
+        Next node to execute
+    """
+    logger.info(">>> Router after Document Analysis <<<")
+    
+    if state.get("error_message"):
+        logger.error(f"Error detected: {state['error_message']}. Ending.")
+        return END
+        
+    return "synthesis"
 
-workflow_v2_1.set_entry_point("planner")
+def create_workflow_graph() -> StateGraph:
+    """
+    Create the workflow graph.
+    
+    Returns:
+        Configured StateGraph instance
+    """
+    workflow = StateGraph(GraphState)
+    
+    # Add nodes
+    workflow.add_node("planner", planner_node)
+    workflow.add_node("arxiv_searcher", arxiv_search_node_wrapper)
+    workflow.add_node("document_analyzer", document_analysis_node_wrapper)
+    workflow.add_node("synthesis", synthesis_node)
+    workflow.add_node("tools", tool_node)
+    
+    # Add conditional edges
+    workflow.add_conditional_edges(
+        "planner",
+        router_after_planner,
+        {
+            "arxiv_searcher": "arxiv_searcher",
+            "document_analyzer": "document_analyzer",
+            END: END
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "arxiv_searcher",
+        router_after_arxiv_search,
+        {
+            "document_analyzer": "document_analyzer",
+            END: END
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "document_analyzer",
+        router_after_document_analysis,
+        {
+            "synthesis": "synthesis",
+            END: END
+        }
+    )
+    
+    # Add tool edges
+    workflow.add_conditional_edges(
+        "tools",
+        tools_condition,
+        {
+            "arxiv_searcher": "arxiv_searcher",
+            "document_analyzer": "document_analyzer",
+            "synthesis": "synthesis",
+            END: END
+        }
+    )
+    
+    # Set entry point
+    workflow.set_entry_point("planner")
+    
+    return workflow
 
-workflow_v2_1.add_conditional_edges(
-    "planner",
-    router_after_planner,
-    {"arxiv_searcher": "arxiv_searcher", "doc_analyzer": "doc_analyzer", END: END}
-)
-
-# Après arxiv_searcher, on vérifie si des outils ont été appelés
-workflow_v2_1.add_conditional_edges(
-    "arxiv_searcher",
-    tools_condition, # Si AIMessage contient tool_calls, va à tools_invoker, sinon à END (ici doc_analyzer)
-    {
-        "tools_invoker": "tools_invoker", # Si des outils doivent être appelés
-        END: "doc_analyzer" # Si l'agent ArXiv a répondu directement sans appel d'outil, ou si erreur
-    }
-)
-
-# Après doc_analyzer, on vérifie aussi si des outils ont été appelés
-workflow_v2_1.add_conditional_edges(
-    "doc_analyzer",
-    tools_condition,
-    {
-        "tools_invoker": "tools_invoker", # Si des outils doivent être appelés
-        END: "synthesizer" # Si l'agent d'analyse a répondu directement, ou si erreur
-    }
-)
-
-# Après l'exécution des outils par tools_invoker, le flux retourne implicitement à l'agent
-# qui a demandé l'appel d'outil (grâce à la manière dont LangGraph gère les ToolMessages).
-# Cependant, pour être plus explicite sur le flux APRES que tools_invoker a traité les outils
-# pour un agent spécifique, on peut ajouter des transitions.
-# Si un outil a été appelé par ArxivSearchAgent, après tools_invoker, on veut que le résultat aille à DocumentAnalysisAgent.
-# Si un outil a été appelé par DocumentAnalysisAgent, après tools_invoker, on veut que le résultat aille à SynthesisAgent.
-# Mais tools_condition est déjà censé gérer cela:
-# - AIMessage avec tool_calls -> tools_invoker
-# - tools_invoker exécute, ajoute ToolMessage
-# - Le graphe continue, le prochain appel à l'agent verra le ToolMessage dans l'historique.
-# Donc, l'arête explicite de tools_invoker vers un nœud spécifique peut parfois être redondante ou créer des cycles si mal gérée.
-# La documentation de LangGraph suggère que `tools_condition` gère le routage vers `tools_invoker`,
-# et que le retour de `tools_invoker` (qui est un `ToolMessage`) est ajouté à l'état,
-# et le graphe continue à partir du nœud qui a émis l'appel à l'outil.
-# Laissons LangGraph gérer le retour de tools_invoker pour l'instant.
-
-workflow_v2_1.add_edge("synthesizer", END)
-
-mongo_checkpointer = MongoDBSaver() 
-graph_app_v2_1 = workflow_v2_1.compile(checkpointer=mongo_checkpointer)
-
-async def run_makers_v2_1(query: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
+async def run_makers_v2_1(
+    query: str,
+    thread_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Run the research workflow.
+    
+    Args:
+        query: User query
+        thread_id: Optional thread ID for state management
+        
+    Returns:
+        Workflow results
+    """
     if not thread_id:
-        thread_id = "swarm_thread_" + str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
-    initial_messages: List[BaseMessage] = [HumanMessage(content=query)]
-    initial_state: GraphState = {
-        "messages": initial_messages, "user_query": query, "research_plan": None,
-        "arxiv_query_for_searcher": None, "kb_query_for_analyzer": None,
-        "arxiv_search_results_str": None, 
-        "document_analysis_summary": None,
-        "synthesis_output": None, "error_message": None,
-    }
-    logger.info(f"Running MAKERS V2.1 for query: '{query}' with thread_id: {thread_id}")
-    full_final_state = None
-    async for event in graph_app_v2_1.astream_events(initial_state, config=config, version="v2"): # type: ignore
-        kind = event["event"]
-        if kind == "on_chat_model_stream":
-            content = event["data"]["chunk"].content
-            if content: print(content, end="", flush=True)
-        elif kind == "on_tool_start":
-            logger.debug(f"Tool Start: {event['name']} with input {event['data'].get('input')}")
-            print(f"\n[Tool Start: {event['name']}]", flush=True)
-        elif kind == "on_tool_end":
-            tool_output = event['data'].get('output')
-            # Mettre à jour arxiv_search_results_str si l'outil est arxiv_search_tool
-            if event['name'] == 'arxiv_search_tool':
-                formatted_tool_output = ""
-                if isinstance(tool_output, list) and tool_output:
-                    formatted_results = []
-                    for item in tool_output:
-                        title = item.get('title', 'N/A')
-                        summary = item.get('summary', 'N/A')
-                        authors = ", ".join(item.get('authors', []))
-                        pdf_url = item.get('pdf_url', '#')
-                        formatted_results.append(f"Title: {title}\nAuthors: {authors}\nSummary: {summary}\nLink: {pdf_url}")
-                    formatted_tool_output = "\n\n---\n\n".join(formatted_results)
-                else:
-                    formatted_tool_output = str(tool_output)
-                
-                # Mettre à jour l'état via un appel explicite n'est pas la manière LangGraph.
-                # Le ToolMessage sera ajouté à l'historique.
-                # Le document_analysis_node_wrapper lira ce ToolMessage.
-                logger.info(f"Tool Output from arxiv_search_tool processed and will be available as ToolMessage.")
+        thread_id = str(uuid.uuid4())
+        
+    # Create workflow graph
+    workflow = create_workflow_graph()
+    
+    # Create checkpointer
+    checkpointer = MongoDBSaver(
+        collection_name=settings.LANGGRAPH_CHECKPOINTS_COLLECTION
+    )
+    
+    # Compile workflow
+    app = workflow.compile(checkpointer=checkpointer)
+    
+    # Run workflow
+    try:
+        # Create initial state with configuration
+        initial_state = {
+            "messages": [HumanMessage(content=query)],
+            "user_query": query
+        }
+        
+        # Create configuration for the workflow
+        config = {
+            "configurable": {
+                "thread_id": thread_id,
+                "checkpoint_ns": "makers_workflow"
+            }
+        }
+        
+        # Run the workflow with the initial state and configuration
+        result = await app.ainvoke(initial_state, config=config)
+        
+        # Extract synthesis from result
+        synthesis = result.get("synthesis_output", "No synthesis available")
+        
+        return {
+            "thread_id": thread_id,
+            "result": result,
+            "synthesis": synthesis
+        }
+        
+    except Exception as e:
+        logger.error(f"Error running workflow: {e}", exc_info=True)
+        return {
+            "thread_id": thread_id,
+            "error": str(e)
+        }
 
-            logger.debug(f"Tool End: {event['name']} with output: {str(tool_output)[:200]}...")
-            if isinstance(tool_output, str) and len(tool_output) < 500:
-                print(f"\n[Tool Output ({event['name']}): {tool_output}]", flush=True)
-            else:
-                print(f"\n[Tool Output ({event['name']}): Received (output might be long or complex)]", flush=True)
-        elif kind == "on_chain_end" or kind == "on_llm_end": # type: ignore
-            node_name = event['name']
-            if node_name in ["planner", "arxiv_searcher", "doc_analyzer", "synthesizer"]: # type: ignore
-                output_data = event['data'].get('output')
-                final_content = None
-                if isinstance(output_data, dict): 
-                    final_content = output_data.get('output') 
-                    if not final_content and 'messages' in output_data and isinstance(output_data['messages'], list) and output_data['messages']:
-                        last_msg = output_data['messages'][-1]
-                        if hasattr(last_msg, 'content'): final_content = last_msg.content
-                elif hasattr(output_data, 'generations'): 
-                    try: final_content = output_data.generations[0][0].message.content
-                    except: final_content = str(output_data)
-                else: final_content = str(output_data)
-                if final_content and isinstance(final_content, str):
-                    print(f"\nOutput from {node_name}:\n{final_content[:1000]}...\n---", flush=True)
-        if event["event"] == "on_graph_end": # type: ignore
-            full_final_state = event["data"].get("output")
-            logger.info("Graph execution finished (on_graph_end event).")
-
-    if full_final_state:
-        logger.info(f"MAKERS V2.1 finished for thread_id: {thread_id}. Final synthesis: {str(full_final_state.get('synthesis_output'))[:200]}...")
-        return full_final_state
+async def main_test_v2_1():
+    """
+    Run a test of the workflow.
+    """
+    test_query = "What are the latest developments in explainable AI?"
+    result = await run_makers_v2_1(test_query)
+    
+    if "error" in result:
+        logger.error(f"Test failed: {result['error']}")
     else:
-        try:
-            last_state_snapshot = await graph_app_v2_1.aget_state(config) # type: ignore
-            if last_state_snapshot:
-                logger.info(f"Last known state from checkpointer for thread_id {thread_id}: {last_state_snapshot.values}")
-                return last_state_snapshot.values 
-            else:
-                logger.error(f"No state could be retrieved from checkpointer for thread_id {thread_id}.")
-                return {"error_message": "Execution completed, but no final state could be retrieved."} # type: ignore
-        except Exception as e_chk:
-            logger.error(f"Could not retrieve last state for thread_id {thread_id} from checkpointer: {e_chk}", exc_info=True)
-            return {"error_message": f"Execution finished but final state could not be determined due to: {str(e_chk)}"} # type: ignore
+        logger.info("Test completed successfully")
+        logger.info(f"Thread ID: {result['thread_id']}")
+        logger.info(f"Result: {result['result']}")
 
+async def get_llm_response(prompt: str) -> str:
+    """
+    Get a response from the LLM for synthesis.
+    
+    Args:
+        prompt: The prompt to send to the LLM
+        
+    Returns:
+        The LLM's response as a string
+    """
+    try:
+        # Use the synthesis agent to get the response
+        response = await synthesis_agent_executor.ainvoke({"messages": [HumanMessage(content=prompt)]})
+        logger.debug(f"Raw response from synthesis_agent_executor: {response}")
+        
+        # Try to get content from the last AIMessage
+        if response.get("messages") and isinstance(response["messages"][-1], AIMessage):
+            synthesis_content = response["messages"][-1].content
+            if synthesis_content:
+                logger.info(f"Extracted synthesis from AIMessage: {synthesis_content}")
+                return synthesis_content
+        
+        # If not in AIMessage, try the 'output' key
+        if response.get("output"):
+            synthesis_content = str(response["output"])
+            if synthesis_content:
+                logger.info(f"Extracted synthesis from 'output' key: {synthesis_content}")
+                return synthesis_content
+                
+        logger.warning(f"No synthesis content found in messages or output. Full response: {response}")
+        return "No response generated"
+    except Exception as e:
+        logger.error(f"Error getting LLM response: {e}")
+        return f"Error generating response: {str(e)}"
 
 if __name__ == "__main__":
-    # ... (reste de la fonction __main__ inchangée) ...
     import asyncio
-    from config.logging_config import setup_logging 
-    setup_logging(level="DEBUG" if settings.DEBUG else "INFO")
-
-    async def main_test_v2_1():
-        logger.info("--- Testing Main Workflow V2.1 (with updated tools and llm_factory) ---")
-        if not settings.OPENAI_API_KEY and \
-           not (settings.DEFAULT_LLM_MODEL_PROVIDER == "huggingface_api" and settings.HUGGINGFACE_API_KEY) and \
-           not (settings.DEFAULT_LLM_MODEL_PROVIDER == "ollama" and settings.OLLAMA_BASE_URL):
-            logger.error("Required API key or configuration for the default LLM provider not set. Workflow test will likely fail.")
-            return
-        
-        test_query = (
-            "I need a deep dive analysis of a key paper on 'sim-to-real transfer in robotics using domain randomization', focusing on its methodology and limitations. "
-            "First, find such a key paper if one isn't immediately obvious in the knowledge base."
-        )
-        
-        thread_for_test = "swarm_hybrid_test_" + str(uuid.uuid4())
-        logger.info(f"\n--- Running V2.1 for query: '{test_query}' (Thread: {thread_for_test}) ---")
-        
-        print(f"\n\nStarting MAKERS for query: \"{test_query}\"\n")
-        final_state = await run_makers_v2_1(test_query, thread_id=thread_for_test)
-        
-        print("\n\n--- MAKERS V2.1 Execution Finished ---")
-        if final_state:
-            print("\nFinal Graph State Snapshot:")
-            sorted_keys = sorted(final_state.keys()) # type: ignore
-            for key in sorted_keys:
-                value = final_state[key] # type: ignore
-                if key == "messages":
-                    print(f"  {key} (last {min(5, len(value))} messages):") # type: ignore
-                    for msg in value[-5:]: 
-                        msg_type = getattr(msg, 'type', 'UNKNOWN_MSG_TYPE').upper()
-                        msg_name = getattr(msg, 'name', None)
-                        msg_content_str = str(getattr(msg, 'content', 'N/A'))
-                        display_name = f"{msg_type} ({msg_name})" if msg_name else msg_type
-                        if hasattr(msg, 'tool_calls') and msg.tool_calls: 
-                            print(f"    └─ {display_name}: {msg_content_str[:100]}... [Tool Calls: {len(msg.tool_calls)}]") 
-                        elif msg_type == "TOOL": 
-                            tool_call_id = getattr(msg, 'tool_call_id', 'N/A')
-                            print(f"    └─ {display_name} (ID: {tool_call_id}): {msg_content_str[:150]}...")
-                        else:
-                            print(f"    └─ {display_name}: {msg_content_str[:150]}...")
-                else:
-                    print(f"  {key}: {str(value)[:300]}...")
-            
-            if final_state.get("synthesis_output"):
-                print("\n\n====== FINAL SYNTHESIS ======")
-                print(final_state["synthesis_output"])
-            elif final_state.get("error_message"):
-                print(f"\n\n====== EXECUTION ERROR ======")
-                print(final_state["error_message"])
-            else:
-                print("\n\n====== EXECUTION COMPLETED (No explicit synthesis output or error found in final state fields) ======")
-
-        global mongo_checkpointer 
-        if 'mongo_checkpointer' in globals() and mongo_checkpointer and hasattr(mongo_checkpointer, 'aclose'):
-            await mongo_checkpointer.aclose()
-            logger.info("MongoDBSaver client closed via aclose().")
-
+    from config.logging_config import setup_logging
+    
+    setup_logging(level="INFO")
     asyncio.run(main_test_v2_1())

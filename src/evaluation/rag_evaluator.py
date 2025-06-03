@@ -1,4 +1,15 @@
-# src/evaluation/rag_evaluator.py
+"""
+RAG Evaluator Module
+
+This module provides tools for evaluating the performance of Retrieval-Augmented Generation (RAG) systems.
+It implements standard information retrieval metrics:
+- Hit Rate@K: Proportion of queries where at least one relevant document is retrieved in top K results
+- MRR@K (Mean Reciprocal Rank): Average of the reciprocal ranks of the first relevant document
+- Average Precision@K: Average precision across all queries for top K results
+
+The evaluator supports both custom evaluation datasets and a default demo dataset.
+"""
+
 import logging
 import json
 from pathlib import Path
@@ -11,11 +22,13 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 class EvalQuery(TypedDict):
+    """Represents a single evaluation query with its expected relevant documents."""
     query_id: str
     query_text: str
     expected_relevant_chunk_ids: List[str]
 
 class RagEvaluationMetrics(TypedDict):
+    """Contains the evaluation metrics for a RAG system."""
     hit_rate_at_k: float
     mrr_at_k: float
     average_precision_at_k: float
@@ -23,27 +36,44 @@ class RagEvaluationMetrics(TypedDict):
     k: int
 
 class RagEvaluator:
+    """
+    Evaluates the performance of a RAG system's retrieval performance.
+    
+    This class provides methods to:
+    - Load and manage evaluation datasets
+    - Evaluate retrieval performance using multiple metrics
+    - Print evaluation results in a human-readable format
+    """
+    
     def __init__(self, retrieval_engine: RetrievalEngine, eval_dataset_path: Optional[Path] = None):
+        """
+        Initialize the RAG evaluator.
+        
+        Args:
+            retrieval_engine: The retrieval engine to evaluate
+            eval_dataset_path: Optional path to a JSON evaluation dataset
+        """
         self.retrieval_engine = retrieval_engine
         self.eval_dataset: List[EvalQuery] = []
-        # MODIFICATION: Store the dataset path
         self.dataset_source_path: Optional[Path] = None
 
         if eval_dataset_path:
-            self.dataset_source_path = eval_dataset_path # Store the provided path
+            self.dataset_source_path = eval_dataset_path
             self.load_dataset(eval_dataset_path)
         else:
             logger.info("No evaluation dataset path provided, using a small default demo dataset.")
             self.eval_dataset = self._get_default_demo_dataset()
-            # self.dataset_source_path remains None, or could be set to a placeholder string
-            # For clarity with W&B logging, keeping it None if default is used is fine,
-            # as the logging logic will handle it.
 
         if not self.eval_dataset:
             logger.warning("RAG evaluation dataset is empty. Evaluator may not produce meaningful results.")
 
     def _get_default_demo_dataset(self) -> List[EvalQuery]:
-        """Provides a very small, generic demo dataset if none is loaded."""
+        """
+        Provides a small, generic demo dataset for testing.
+        
+        Returns:
+            List[EvalQuery]: A list of sample evaluation queries
+        """
         return [
             {
                 "query_id": "demo_q1",
@@ -63,11 +93,15 @@ class RagEvaluator:
         ]
 
     def load_dataset(self, dataset_path: Path) -> None:
-        """Loads the evaluation dataset from a JSON file."""
+        """
+        Load the evaluation dataset from a JSON file.
+        
+        Args:
+            dataset_path: Path to the JSON dataset file
+        """
         logger.info(f"Loading RAG evaluation dataset from: {dataset_path}")
-        # MODIFICATION: Store the path if not already stored via __init__ (though it should be)
         if self.dataset_source_path is None:
-             self.dataset_source_path = dataset_path
+            self.dataset_source_path = dataset_path
 
         try:
             with open(dataset_path, "r", encoding="utf-8") as f:
@@ -75,21 +109,35 @@ class RagEvaluator:
             logger.info(f"Successfully loaded {len(self.eval_dataset)} queries from dataset.")
         except FileNotFoundError:
             logger.error(f"Evaluation dataset file not found: {dataset_path}")
-            self.eval_dataset = self._get_default_demo_dataset()
-            self.dataset_source_path = None # Reset path if fallback to default
-            logger.warning(f"Using default demo dataset due to FileNotFoundError.")
+            self._fallback_to_default_dataset("FileNotFoundError")
         except json.JSONDecodeError:
             logger.error(f"Error decoding JSON from evaluation dataset: {dataset_path}", exc_info=True)
-            self.eval_dataset = self._get_default_demo_dataset()
-            self.dataset_source_path = None # Reset path if fallback to default
-            logger.warning(f"Using default demo dataset due to JSONDecodeError.")
+            self._fallback_to_default_dataset("JSONDecodeError")
         except Exception as e:
             logger.error(f"An unexpected error occurred loading dataset: {e}", exc_info=True)
-            self.eval_dataset = self._get_default_demo_dataset()
-            self.dataset_source_path = None # Reset path if fallback to default
-            logger.warning(f"Using default demo dataset due to an unexpected error.")
+            self._fallback_to_default_dataset("unexpected error")
+
+    def _fallback_to_default_dataset(self, error_type: str) -> None:
+        """
+        Fall back to the default demo dataset when loading fails.
+        
+        Args:
+            error_type: Type of error that caused the fallback
+        """
+        self.eval_dataset = self._get_default_demo_dataset()
+        self.dataset_source_path = None
+        logger.warning(f"Using default demo dataset due to {error_type}.")
 
     def evaluate(self, k: int = 5) -> Optional[RagEvaluationMetrics]:
+        """
+        Evaluate the RAG system's retrieval performance.
+        
+        Args:
+            k: Number of top results to consider for evaluation
+            
+        Returns:
+            Optional[RagEvaluationMetrics]: Evaluation metrics if successful, None otherwise
+        """
         if not self.eval_dataset:
             logger.error("Evaluation dataset is empty. Cannot run evaluation.")
             return None
@@ -102,7 +150,6 @@ class RagEvaluator:
         hits = 0
         sum_reciprocal_ranks = 0.0
         sum_precision_at_k = 0.0
-        
         num_queries_with_relevant_docs = 0
 
         for i, eval_query in enumerate(self.eval_dataset):
@@ -164,7 +211,13 @@ class RagEvaluator:
         logger.info(f"RAG Evaluation Metrics (k={k}): {metrics}")
         return metrics
 
-    def print_results(self, metrics: RagEvaluationMetrics):
+    def print_results(self, metrics: RagEvaluationMetrics) -> None:
+        """
+        Print evaluation results in a human-readable format.
+        
+        Args:
+            metrics: The evaluation metrics to print
+        """
         print("\n--- RAG Retrieval Evaluation Results ---")
         print(f"Number of Test Queries: {metrics['num_queries']}")
         print(f"K (Top N Results Considered): {metrics['k']}")
@@ -182,10 +235,10 @@ if __name__ == "__main__":
         logger.error("Required configuration for the default embedding provider is missing. RetrievalEngine (and thus RAG Evaluator) may fail.")
     
     try:
+        # Initialize retrieval engine
         retrieval_engine_instance = RetrievalEngine()
         
-        # Test with a specified dataset path
-        # Create a dummy dataset for testing if it doesn't exist
+        # Create test dataset
         dummy_dataset_path = Path(settings.DATA_DIR) / "evaluation" / "dummy_rag_eval_dataset.json"
         dummy_dataset_path.parent.mkdir(parents=True, exist_ok=True)
         if not dummy_dataset_path.exists():
@@ -199,9 +252,10 @@ if __name__ == "__main__":
                 ], f)
             logger.info(f"Created dummy dataset at {dummy_dataset_path}")
 
+        # Test with file-based dataset
         evaluator_with_file = RagEvaluator(
             retrieval_engine=retrieval_engine_instance,
-            eval_dataset_path=dummy_dataset_path # Use the dummy path
+            eval_dataset_path=dummy_dataset_path
         )
         assert evaluator_with_file.dataset_source_path == dummy_dataset_path
         logger.info(f"Evaluator initialized with file, dataset source path: {evaluator_with_file.dataset_source_path}")
@@ -211,9 +265,9 @@ if __name__ == "__main__":
             if evaluation_metrics_file:
                 evaluator_with_file.print_results(evaluation_metrics_file)
         
-        # Test with default internal dataset
+        # Test with default dataset
         evaluator_default = RagEvaluator(retrieval_engine=retrieval_engine_instance)
-        assert evaluator_default.dataset_source_path is None # Default dataset has no source path stored
+        assert evaluator_default.dataset_source_path is None
         logger.info(f"Evaluator initialized with default dataset, source path: {evaluator_default.dataset_source_path}")
         if evaluator_default.retrieval_engine and evaluator_default.eval_dataset:
             evaluation_metrics_default = evaluator_default.evaluate(k=3)
