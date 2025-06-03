@@ -1,4 +1,4 @@
-# cognitive-swarm-agents/requirements.txt
+# makers/requirements.txt
 
 # --- Configuration and Utilities ---
 pydantic
@@ -54,7 +54,7 @@ ipykernel
 
 # Note: Specific versions should be pinned for production or stable environments.
 # You can generate a more precise list from your active Conda environment (if pip was used within it):
-# conda activate cognitive-swarm
+# conda activate makers
 # pip list --format=freeze > requirements.txt
 # Or if you built a pure pip environment:
 # source .venv/bin/activate (or .venv\Scripts\activate on Windows)

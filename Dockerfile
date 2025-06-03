@@ -1,4 +1,4 @@
-# cognitive-swarm-agents/Dockerfile
+# makers/Dockerfile
 
 # Étape 1: Choisir une image Python de base
 # Utiliser une image slim pour réduire la taille, Python 3.11 comme spécifié
@@ -36,9 +36,9 @@ COPY ./scripts /app/scripts
 ENV PYTHONPATH="/app"
 
 # Commande par défaut pour afficher l'aide si le conteneur est lancé sans arguments.
-# On pourrait aussi lancer un script spécifique, par exemple, l'aide de run_cognitive_swarm.
-CMD ["python", "-m", "scripts.run_cognitive_swarm", "--help"]
+# On pourrait aussi lancer un script spécifique, par exemple, l'aide de run_makers.
+CMD ["python", "-m", "scripts.run_makers", "--help"]
 
 # Pour exécuter un script spécifique, par exemple :
-# docker run cognitive-swarm-app python -m scripts.run_ingestion --max_results 1
-# docker run -e OPENAI_API_KEY=$OPENAI_API_KEY -e MONGODB_URI=$MONGODB_URI cognitive-swarm-app python -m scripts.run_cognitive_swarm --query "My query"
+# docker run makers-app python -m scripts.run_ingestion --max_results 1
+# docker run -e OPENAI_API_KEY=$OPENAI_API_KEY -e MONGODB_URI=$MONGODB_URI makers-app python -m scripts.run_makers --query "My query"

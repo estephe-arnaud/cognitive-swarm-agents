@@ -1,11 +1,11 @@
-# cognitive-swarm-agents/src/api/schemas.py
+# makers/src/api/schemas.py
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from langchain_core.messages import BaseMessage # Pour typer la sortie des messages
 
 # Schéma pour la requête d'invocation du swarm
 class SwarmQueryRequest(BaseModel):
-    query: str = Field(..., description="The user query/question for the Cognitive Swarm.")
+    query: str = Field(..., description="The user query/question for the MAKERS.")
     thread_id: Optional[str] = Field(None, description="Optional existing thread ID to continue a session.")
     # On pourrait ajouter d'autres paramètres de configuration ici si on veut les surcharger au runtime
     # par exemple: config_overrides: Optional[Dict[str, Any]] = None

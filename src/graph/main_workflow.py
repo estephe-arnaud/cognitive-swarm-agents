@@ -307,7 +307,7 @@ workflow_v2_1.add_edge("synthesizer", END)
 mongo_checkpointer = MongoDBSaver() 
 graph_app_v2_1 = workflow_v2_1.compile(checkpointer=mongo_checkpointer)
 
-async def run_cognitive_swarm_v2_1(query: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
+async def run_makers_v2_1(query: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
     if not thread_id:
         thread_id = "swarm_thread_" + str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
@@ -319,7 +319,7 @@ async def run_cognitive_swarm_v2_1(query: str, thread_id: Optional[str] = None) 
         "document_analysis_summary": None,
         "synthesis_output": None, "error_message": None,
     }
-    logger.info(f"Running Cognitive Swarm V2.1 for query: '{query}' with thread_id: {thread_id}")
+    logger.info(f"Running MAKERS V2.1 for query: '{query}' with thread_id: {thread_id}")
     full_final_state = None
     async for event in graph_app_v2_1.astream_events(initial_state, config=config, version="v2"): # type: ignore
         kind = event["event"]
@@ -377,7 +377,7 @@ async def run_cognitive_swarm_v2_1(query: str, thread_id: Optional[str] = None) 
             logger.info("Graph execution finished (on_graph_end event).")
 
     if full_final_state:
-        logger.info(f"Cognitive Swarm V2.1 finished for thread_id: {thread_id}. Final synthesis: {str(full_final_state.get('synthesis_output'))[:200]}...")
+        logger.info(f"MAKERS V2.1 finished for thread_id: {thread_id}. Final synthesis: {str(full_final_state.get('synthesis_output'))[:200]}...")
         return full_final_state
     else:
         try:
@@ -415,10 +415,10 @@ if __name__ == "__main__":
         thread_for_test = "swarm_hybrid_test_" + str(uuid.uuid4())
         logger.info(f"\n--- Running V2.1 for query: '{test_query}' (Thread: {thread_for_test}) ---")
         
-        print(f"\n\nStarting Cognitive Swarm for query: \"{test_query}\"\n")
-        final_state = await run_cognitive_swarm_v2_1(test_query, thread_id=thread_for_test)
+        print(f"\n\nStarting MAKERS for query: \"{test_query}\"\n")
+        final_state = await run_makers_v2_1(test_query, thread_id=thread_for_test)
         
-        print("\n\n--- Cognitive Swarm V2.1 Execution Finished ---")
+        print("\n\n--- MAKERS V2.1 Execution Finished ---")
         if final_state:
             print("\nFinal Graph State Snapshot:")
             sorted_keys = sorted(final_state.keys()) # type: ignore

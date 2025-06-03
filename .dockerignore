@@ -1,4 +1,4 @@
-# cognitive-swarm-agents/.dockerignore
+# makers/.dockerignore
 __pycache__/
 *.pyc
 *.pyo

@@ -41,7 +41,7 @@ class MongoDBManager:
                 self.mongo_uri,
                 maxPoolSize=settings.MONGO_MAX_POOL_SIZE,
                 serverSelectionTimeoutMS=settings.MONGO_TIMEOUT_MS,
-                appName="CognitiveSwarmClient"
+                appName="MAKERSClient"
             )
             self.client.admin.command('ping')
             self.db = self.client[self.db_name]

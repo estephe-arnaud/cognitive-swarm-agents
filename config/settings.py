@@ -1,4 +1,4 @@
-# cognitive-swarm-agents/config/settings.py
+# makers/config/settings.py
 import os
 from typing import List, Optional
 from pathlib import Path
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     Settings are loaded from environment variables and/or a .env file.
     """
     # General Project Settings
-    PROJECT_NAME: str = "Cognitive Swarm: Multi-Agent Knowledge Discovery Engine"
+    PROJECT_NAME: str = "MAKERS: Multi Agent Knowledge Exploration & Retrieval System"
     DEBUG: bool = False
     PYTHON_ENV: str = "development" # e.g., development, staging, production
 
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
 
     # MongoDB Configuration
     MONGODB_URI: str = "mongodb://localhost:27017/"
-    MONGO_DATABASE_NAME: str = "cognitive_swarm_db"
+    MONGO_DATABASE_NAME: str = "makers_db"
     MONGO_MAX_POOL_SIZE: int = 50
     MONGO_TIMEOUT_MS: int = 5000 # 5 seconds
 

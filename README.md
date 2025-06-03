@@ -1,8 +1,8 @@
-# Cognitive Swarm: Multi-Agent Knowledge Discovery Engine
+# MAKERS: Multi Agent Knowledge Exploration & Retrieval System
 
 ## 🚀 Overview
 
-"Cognitive Swarm" is a multi-agent system designed and implemented to collaboratively search, analyze, and synthesize information from complex document corpora (e.g., scientific research papers, technical documentation). It leverages Large Language Models (LLMs) through frameworks like LangGraph (for orchestration) and LlamaIndex (for advanced Retrieval Augmented Generation - RAG), with MongoDB Atlas serving as the vector database and for persisting agent states.
+"**MAKERS**" is a multi-agent system designed and implemented to collaboratively search, analyze, and synthesize information from complex document corpora (e.g., scientific research papers, technical documentation). It leverages Large Language Models (LLMs) through frameworks like LangGraph (for orchestration) and LlamaIndex (for advanced Retrieval Augmented Generation - RAG), with MongoDB Atlas serving as the vector database and for persisting agent states.
 
 The primary goal of this project is to build an intelligent engine capable of:
 * Ingesting and processing large sets of documents (e.g., ArXiv papers on various topics like Machine Learning, AI, Robotics, etc., based on user queries).
@@ -35,11 +35,11 @@ This project serves as a portfolio piece demonstrating expertise in Generative A
     * `RagEvaluator` for retrieval metrics (Hit Rate, MRR, Precision@K).
     * `SynthesisEvaluator` using LLM-as-a-Judge for assessing synthesis quality (relevance, faithfulness).
     * `WandBMetricsLogger` for seamless integration with Weights & Biases experiment tracking.
-* **CLI Interface**: Python scripts (`run_ingestion.py`, `run_cognitive_swarm.py`, `run_evaluation.py`) to manage the system.
+* **CLI Interface**: Python scripts (`run_ingestion.py`, `run_makers.py`, `run_evaluation.py`) to manage the system.
 * **Jupyter Notebooks**: For environment setup, component demonstration, experimentation, and end-to-end testing.
 * **Reproducible Environment**: Defined via `environment.yml` (Conda) and `requirements.txt` (pip).
 * **Containerization**: `Dockerfile` provided for building a portable application image.
-* **API Layer (Basic)**: A FastAPI application (`src/api/main.py`) providing an endpoint to interact with the Cognitive Swarm.
+* **API Layer (Basic)**: A FastAPI application (`src/api/main.py`) providing an endpoint to interact with the **MAKERS** system.
 
 ### 🛠️ Tech Stack & Architecture
 
@@ -72,7 +72,7 @@ This project serves as a portfolio piece demonstrating expertise in Generative A
 
 1.  **Data Ingestion**: ArXiv papers (or other documents in future extensions) are downloaded based on a specific query. PDFs and metadata are stored in a dynamically named subdirectory within `data/corpus/` (derived from the query or a specified corpus name). Documents are then parsed, chunked, embedded (configurable provider; defaults to Ollama with `nomic-embed-text`), and stored in a MongoDB collection. Atlas Vector Search and text indexes are created (the vector index dimension adapts to the chosen embedding model).
 2.  **User Query**: Submitted via CLI or API.
-3.  **LangGraph Workflow (`CognitiveSwarm`)**:
+3.  **LangGraph Workflow (`MAKERS`)**:
     * *LLM instances for the agents in this workflow (Planner, ArXiv Searcher, Document Analyzer, Synthesizer) are provided by the centralized module `src/llm_services/llm_factory.py`, ensuring consistent configuration and provider selection (defaults to Ollama if not specified in `.env`) across the system.*
     * A `ResearchPlannerAgent` creates a research plan tailored to the user query.
     * An improved `router_after_planner` directs flow:
@@ -84,7 +84,7 @@ This project serves as a portfolio piece demonstrating expertise in Generative A
 
 ## 📁 Directory Structure
 ```
-cognitive-swarm-agents/
+makers/
 ├── config/              # Configuration files (settings.py, logging_config.py)
 ├── data/                # Local data (corpus, evaluation dataset examples)
 │   ├── corpus/          # Contains subdirectories for different ingested corpora
@@ -93,7 +93,7 @@ cognitive-swarm-agents/
 │   │       └── metadata/
 │   └── evaluation/      # Example JSON evaluation dataset files
 ├── notebooks/           # Jupyter notebooks for setup, demos, experiments
-├── scripts/             # CLI scripts (run_ingestion.py, run_cognitive_swarm.py, run_evaluation.py)
+├── scripts/             # CLI scripts (run_ingestion.py, run_makers.py, run_evaluation.py)
 ├── src/                 # Source code for the project
 │   ├── agents/          # Agent architectures (LangGraph) and tool definitions
 │   │   └── crewai_teams/ # CrewAI team definitions (e.g., document_analysis_crew.py)
@@ -118,7 +118,7 @@ cognitive-swarm-agents/
 1.  **Clone the Repository**:
     ```bash
     git clone <repository_url> # Remplacez par l'URL de votre dépôt GitHub
-    cd cognitive-swarm-agents
+    cd makers
     ```
 
 2.  **Create and Activate Conda Environment**:
@@ -129,7 +129,7 @@ cognitive-swarm-agents/
         ```
     * Activate the environment:
         ```bash
-        conda activate cognitive-swarm
+        conda activate makers
         ```
 
 3.  **Set Up Environment Variables (`.env` file)**:
@@ -145,14 +145,14 @@ cognitive-swarm-agents/
 
 5.  **Verify Setup**: Run the first Jupyter notebook to ensure your environment is correctly configured:
     ```bash
-    # Assurez-vous que votre environnement Conda 'cognitive-swarm' est activé
+    # Assurez-vous que votre environnement Conda 'makers' est activé
     jupyter notebook notebooks/00_setup_environment.ipynb
     ```
     Follow the instructions within the notebook.
 
 ## 🚀 Running the Project
 
-All commands below should be run from the root directory of the project (`cognitive-swarm-agents/`) with the `cognitive-swarm` Conda environment activated.
+All commands below should be run from the root directory of the project (`makers/`) with the `makers` Conda environment activated.
 
 ### 1. Data Ingestion
 
@@ -171,11 +171,11 @@ python -m scripts.run_ingestion --query "Your research topic in natural language
 * `--skip_download`: If you have already downloaded PDFs and metadata into the correct target corpus subdirectory (e.g., `data/corpus/my_corpus/pdfs/`), use this flag to skip the ArXiv download step and re-process local files.
 * This script handles downloading, parsing, chunking, embedding, storage in MongoDB, and index creation. Data for each run (based on `corpus_name` or the sanitized `query`) is stored in its own subdirectory under `data/corpus/`.
 
-### 2. Running the Cognitive Swarm
+### 2. Running the MAKERS System
 
 To submit a query to the multi-agent system (this will use Ollama for LLMs by default if not overridden in `.env`):
 ```bash
-python -m scripts.run_cognitive_swarm --query "What are the latest advancements in using large language models for robot task planning?" --log_level INFO
+python -m scripts.run_makers --query "What are the latest advancements in using large language models for robot task planning?" --log_level INFO
 ```
 * A `thread_id` will be generated (or you can provide one with `--thread_id`) for conversation history and checkpointing.
 * Output from agents and tools will stream to the console. The final synthesized output will be displayed at the end.
@@ -188,7 +188,7 @@ To evaluate the RAG performance and synthesis quality (ensure evaluation dataset
 python -m scripts.run_evaluation --eval_type all \
     --rag_dataset data/evaluation/rag_eval_dataset.json \
     --synthesis_dataset data/evaluation/synthesis_eval_dataset.json \
-    --wandb_project "CognitiveSwarm-MyEvals" \
+    --wandb_project "MAKERS-MyEvals" \
     --wandb_run_name "Eval_Run_$(date +%Y%m%d_%H%M)" \
     --log_level INFO
 ```
@@ -197,12 +197,12 @@ python -m scripts.run_evaluation --eval_type all \
 
 ### 4. Running the API (Optional)
 
-If you want to expose the Cognitive Swarm via a FastAPI:
+If you want to expose the MAKERS via a FastAPI:
 ```bash
 uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-You can then send POST requests to `http://localhost:8000/invoke_swarm`.
+You can then send POST requests to `http://localhost:8000/invoke_makers`.
 
 ## 📓 Notebooks Overview
 
@@ -231,7 +231,7 @@ The `notebooks/` directory provides detailed examples and demonstrations:
 ```
 MIT License
 
-Copyright (c) 2025 [Estèphe ARNAUD / Cognitive Swarm: Multi-Agent Knowledge Discovery Engine]
+Copyright (c) 2025 [Estèphe ARNAUD / MAKERS: Multi Agent Knowledge Exploration & Retrieval System]
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -1,4 +1,4 @@
-# cognitive-swarm-agents/src/api/main.py
+# makers/src/api/main.py
 import logging
 import uuid
 from typing import Dict, Any, Optional, List
@@ -10,7 +10,7 @@ from starlette.middleware.cors import CORSMiddleware # Pour gérer les requêtes
 # Importer nos modules projet
 from config.settings import settings
 from config.logging_config import setup_logging
-from src.graph.main_workflow import run_cognitive_swarm_v2_1, GraphState # Importer GraphState pour le type hint
+from src.graph.main_workflow import run_makers_v2_1, GraphState # Importer GraphState pour le type hint
 from src.api.schemas import SwarmQueryRequest, SwarmResponse, ErrorResponse, SwarmOutputMessage
 
 # Configurer le logging pour l'API
@@ -20,7 +20,7 @@ logger = logging.getLogger("api_main")
 # Initialisation de l'application FastAPI
 app = FastAPI(
     title=settings.PROJECT_NAME + " API",
-    description="API to interact with the Cognitive Swarm multi-agent system.",
+    description="API to interact with the MAKERS multi-agent system.",
     version="0.1.0",
     # openapi_url=f"{settings.API_V1_STR}/openapi.json" # Si API_V1_STR est utilisé pour préfixer les routes
 )
@@ -48,10 +48,10 @@ async def startup_event():
     # (actuellement, il est initialisé dans main_workflow au moment de la compilation du graphe).
 
 
-@app.post("/invoke_swarm", response_model=SwarmResponse, responses={500: {"model": ErrorResponse}})
-async def invoke_swarm_endpoint(request_data: SwarmQueryRequest = Body(...)):
+@app.post("/invoke_makers", response_model=SwarmResponse, responses={500: {"model": ErrorResponse}})
+async def invoke_makers_endpoint(request_data: SwarmQueryRequest = Body(...)):
     """
-    Receives a user query and an optional thread_id, then invokes the Cognitive Swarm workflow.
+    Receives a user query and an optional thread_id, then invokes the MAKERS workflow.
     Returns the synthesized output and other relevant information.
     """
     thread_id = request_data.thread_id if request_data.thread_id else "api_thread_" + str(uuid.uuid4())
@@ -61,8 +61,8 @@ async def invoke_swarm_endpoint(request_data: SwarmQueryRequest = Body(...)):
 
     try:
         # Exécuter le workflow cognitif (qui est asynchrone)
-        # run_cognitive_swarm_v2_1 retourne un dict qui correspond à GraphState
-        final_graph_state_dict: Dict[str, Any] = await run_cognitive_swarm_v2_1(query=query, thread_id=thread_id)
+        # run_makers_v2_1 retourne un dict qui correspond à GraphState
+        final_graph_state_dict: Dict[str, Any] = await run_makers_v2_1(query=query, thread_id=thread_id)
         
         if not final_graph_state_dict:
             logger.error(f"Workflow execution returned None for thread_id: {thread_id}")
@@ -90,7 +90,7 @@ async def invoke_swarm_endpoint(request_data: SwarmQueryRequest = Body(...)):
         # Re-lever les exceptions HTTP pour que FastAPI les gère
         raise http_exc
     except Exception as e:
-        logger.error(f"Error invoking Cognitive Swarm for thread_id {thread_id}: {e}", exc_info=True)
+        logger.error(f"Error invoking MAKERS for thread_id {thread_id}: {e}", exc_info=True)
         # Retourner une réponse d'erreur générique
         # Ne pas exposer les détails de l'exception interne en production
         detail_message = "An internal error occurred while processing your request."
@@ -108,7 +108,7 @@ async def health_check():
 # Pour exécuter cette API localement (nécessite uvicorn: pip install uvicorn[standard]):
 # uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 #
-# Puis, vous pouvez envoyer une requête POST à http://localhost:8000/invoke_swarm avec un JSON body:
+# Puis, vous pouvez envoyer une requête POST à http://localhost:8000/invoke_makers avec un JSON body:
 # {
 #   "query": "What are the latest trends in reinforcement learning for robotics?",
 #   "thread_id": "optional_existing_thread_id"

@@ -1,4 +1,4 @@
-# cognitive-swarm-agents/scripts/run_ingestion.py
+# makers/scripts/run_ingestion.py
 import argparse
 import logging
 import re 
@@ -26,7 +26,7 @@ def sanitize_query_for_directory_name(query: str) -> str:
     return s[:50]
 
 def main():
-    parser = argparse.ArgumentParser(description="Cognitive Swarm: Data Ingestion Pipeline for ArXiv papers.")
+    parser = argparse.ArgumentParser(description="MAKERS: Data Ingestion Pipeline for ArXiv papers.")
     parser.add_argument(
         "--query",
         type=str,

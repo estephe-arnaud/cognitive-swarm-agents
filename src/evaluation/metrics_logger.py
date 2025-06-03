@@ -1,4 +1,4 @@
-# cognitive-swarm-agents/src/evaluation/metrics_logger.py
+# makers/src/evaluation/metrics_logger.py
 import logging
 import os
 from typing import Dict, Any, Optional, List, TYPE_CHECKING # <<< Import TYPE_CHECKING
@@ -30,7 +30,7 @@ class WandBMetricsLogger:
     """
     def __init__(
         self,
-        project_name: str = "CognitiveSwarm-Experiments",
+        project_name: str = "MAKERS-Experiments",
         entity: Optional[str] = None, 
         run_name: Optional[str] = None, 
         config_to_log: Optional[Dict[str, Any]] = None,
@@ -221,7 +221,7 @@ if __name__ == "__main__":
         }
         
         wb_logger = WandBMetricsLogger(
-            project_name="CognitiveSwarm-Tests-TypeFix", # Nouveau nom de projet pour test
+            project_name="MAKERS-Tests-TypeFix", # Nouveau nom de projet pour test
             run_name="Test Run - Metrics Logger TypeFix", 
             config_to_log=test_config,
             tags=["test", "typefix"]

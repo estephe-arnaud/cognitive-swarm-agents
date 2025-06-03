@@ -1,4 +1,4 @@
-# cognitive-swarm-agents/scripts/run_cognitive_swarm.py
+# makers/scripts/run_makers.py
 import argparse
 import asyncio
 import logging
@@ -7,7 +7,7 @@ from typing import Optional
 
 from config.settings import settings
 from config.logging_config import setup_logging
-from src.graph.main_workflow import run_cognitive_swarm_v2_1 # Assurez-vous que c'est le nom correct de la fonction
+from src.graph.main_workflow import run_makers_v2_1 # Assurez-vous que c'est le nom correct de la fonction
 
 # Configurer le logger pour ce script
 # setup_logging() # Sera appelé dans main()
@@ -23,8 +23,8 @@ async def async_main(query: str, thread_id: Optional[str], log_level_cli: str):
         return
 
     current_thread_id = thread_id if thread_id else "swarm_cli_thread_" + str(uuid.uuid4())
-    logger.info(f"Initiating Cognitive Swarm with query: '{query}' for thread ID: {current_thread_id}")
-    print(f"\n🚀 Starting Cognitive Swarm for query: \"{query}\"")
+    logger.info(f"Initiating MAKERS with query: '{query}' for thread ID: {current_thread_id}")
+    print(f"\n🚀 Starting MAKERS for query: \"{query}\"")
     print(f"🧠 Thread ID: {current_thread_id}\n")
     print(f"⚙️ Configured LLM Provider: {settings.DEFAULT_LLM_MODEL_PROVIDER}")
     print(f"⚙️ Configured Embedding Provider: {settings.DEFAULT_EMBEDDING_PROVIDER}")
@@ -43,9 +43,9 @@ async def async_main(query: str, thread_id: Optional[str], log_level_cli: str):
         # Pour les autres providers, llm_factory.py se chargera de vérifier les configurations spécifiques.
 
         # Exécuter le workflow
-        final_state = await run_cognitive_swarm_v2_1(query, thread_id=current_thread_id)
+        final_state = await run_makers_v2_1(query, thread_id=current_thread_id)
 
-        print("\n\n--- ✅ Cognitive Swarm Execution Finished ---")
+        print("\n\n--- ✅ MAKERS Execution Finished ---")
         if final_state:
             print("\n📊 Final Graph State Summary:")
             if final_state.get("user_query"):
@@ -83,24 +83,24 @@ async def async_main(query: str, thread_id: Optional[str], log_level_cli: str):
                 logger.warning(f"Execution completed for thread {current_thread_id} but no 'synthesis_output' or 'error_message' was found in the final state.")
         
         else:
-            print("Cognitive Swarm execution did not return a final state.")
+            print("MAKERS execution did not return a final state.")
             logger.error(f"No final state returned for thread {current_thread_id}.")
 
     except ValueError as ve: # Peut être levé par llm_factory si la config du provider est mauvaise
-        logger.error(f"Configuration or Value Error while running Cognitive Swarm: {ve}", exc_info=True)
+        logger.error(f"Configuration or Value Error while running MAKERS: {ve}", exc_info=True)
         print(f"\n❌ CONFIGURATION ERROR: {ve}")
         print("   Please check your .env file and ensure the selected LLM provider and its API keys/URLs are correctly set.")
     except Exception as e:
-        logger.error(f"An unexpected error occurred while running the Cognitive Swarm: {e}", exc_info=True)
+        logger.error(f"An unexpected error occurred while running the MAKERS: {e}", exc_info=True)
         print(f"\n❌ An unexpected error occurred: {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Cognitive Swarm: Knowledge Discovery Engine CLI.")
+    parser = argparse.ArgumentParser(description="MAKERS: Knowledge Discovery Engine CLI.")
     parser.add_argument(
         "-q", "--query",
         type=str,
         required=True,
-        help="The user query/question for the Cognitive Swarm to process."
+        help="The user query/question for the MAKERS to process."
     )
     parser.add_argument(
         "-t", "--thread_id",
