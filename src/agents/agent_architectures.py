@@ -2,18 +2,19 @@
 Agent Architectures Module
 
 This module defines the core agent architectures used in the research assistant system.
-Each agent is specialized for a specific task in the research workflow:
-- Research Planner: Breaks down complex queries into structured research plans
-- Document Analysis: Analyzes scientific documents using specialized tools
-- ArXiv Search: Performs targeted searches on ArXiv
-- Synthesis: Combines and structures information from various sources
+Each agent is specialized for a specific task in the research workflow, created
+using a factory pattern that combines a specific language model, a structured
+prompt, and a set of tools.
 
-The module uses LangChain's agent framework and integrates with custom tools for
-knowledge base retrieval, document analysis, and ArXiv searching.
+- Research Planner: Breaks down complex queries into structured research plans.
+- ArXiv Search: Performs targeted searches on ArXiv.
+- Document Analysis: Analyzes scientific documents, with the ability to perform
+  deep dives into full PDF contents.
+- Synthesis: Combines and structures information into a final, polished report.
 """
 
 import logging
-from typing import List, Optional, Sequence
+from typing import List, Optional
 
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -21,258 +22,292 @@ from langchain_core.tools import BaseTool
 from langchain.agents import create_openai_tools_agent, AgentExecutor
 
 from config.settings import settings
-# Importation des outils (inchangée)
 from src.agents.tool_definitions import (
     knowledge_base_retrieval_tool,
     arxiv_search_tool,
-    document_deep_dive_analysis_tool
+    document_deep_dive_analysis_tool,
 )
-# MODIFICATION: Importer get_llm et les constantes de température depuis le nouveau factory
 from src.llm_services.llm_factory import get_llm, SYNTHESIS_LLM_TEMPERATURE
-# DEFAULT_LLM_TEMPERATURE est utilisé par défaut dans get_llm si temperature n'est pas spécifiée,
-# donc pas besoin de l'importer ici à moins d'un usage explicite.
 
 logger = logging.getLogger(__name__)
 
-# La définition de get_llm et les constantes DEFAULT_LLM_TEMPERATURE, SYNTHESIS_LLM_TEMPERATURE
-# ont été déplacées vers src.llm_services.llm_factory.py
 
 # --- Agent 1: Research Planner Agent ---
-RESEARCH_PLANNER_SYSTEM_PROMPT = """You are a Research Planner Agent.
-Your role is to take a complex user query or research topic related to scientific literature, 
-particularly in the fields of Machine Learning, Artificial Intelligence, and related domains 
-(such as robotics, computer vision, etc., depending on the query).
 
-Your goal is to break the user's query down into a structured research plan. 
-This plan will be executed by other specialist agents.
+RESEARCH_PLANNER_SYSTEM_PROMPT = """
+**Role:** You are a meticulous and strategic Research Planner.
 
-The plan should consist of:
-1. Key Questions: A list of specific questions that need to be answered to comprehensively 
-   address the user's query.
-2. Information Sources: Identify potential information sources (e.g., our internal knowledge 
-   base of ArXiv papers, new ArXiv searches, specific journals, conference proceedings, or 
-   general academic search engines like Google Scholar if appropriate for the query's scope).
-3. Search Queries: Suggest specific, effective search queries for the identified sources. 
-   Include keywords from the user's query and relevant synonyms or related concepts. 
-   Specify if a date range for publications is relevant (e.g., recent trends).
-4. Analysis Steps: Outline what kind of analysis should be performed on the retrieved 
-   information to answer the key questions.
-5. Final Output Structure: Briefly describe what the final report or answer should look like, 
-   ensuring it directly addresses all parts of the user's original query.
+**Goal:** To transform a user's research query into a structured, actionable plan
+that other specialized agents will execute. You do not perform any searches or
+analysis yourself; your sole output is the plan.
 
-You do not have tools to search or analyze documents directly. Your output is solely the research plan.
-Provide the plan in a clear, actionable, and preferably structured format (e.g., markdown).
-Ensure your plan is tailored to the specifics of the user's query, including any specified output language.
-Respond ONLY with the research plan based on the user's query.
+**User Query Context:** The user is asking about a scientific topic, likely in the
+domain of Machine Learning or Artificial Intelligence.
+
+### Directives:
+1.  **Deconstruct the Query:** Break down the user's request into fundamental questions.
+2.  **Identify Sources:** Pinpoint the best places to find answers (e.g., new ArXiv
+    searches, specific journals, our internal knowledge base).
+3.  **Formulate Search Queries:** Create specific, effective search queries for each
+    source. If the user's query implies recent trends, suggest a date range.
+    **Crucially, if you recommend an ArXiv search, provide a clear, single query
+    for it like this: `arxiv: "your query here"`**.
+4.  **Define Analysis Steps:** Briefly outline how the retrieved information should be
+    analyzed.
+5.  **Structure the Output:** Present the plan in a clear, easy-to-read format
+    (like Markdown).
+
+**Constraint:** You MUST ONLY output the research plan. Do not write any
+introductions or conversational text. Your entire response should be the plan itself.
 """
 
-def create_research_planner_agent(llm: Optional[BaseLanguageModel] = None) -> AgentExecutor:
+
+def create_research_planner_agent(
+    llm: Optional[BaseLanguageModel] = None,
+) -> AgentExecutor:
     """
-    Creates a Research Planner Agent that breaks down complex queries into structured research plans.
-    
+    Creates the Research Planner Agent.
+
+    This agent is tool-less. Its only job is to receive a user query and
+    generate a structured research plan based on its system prompt.
+
     Args:
-        llm: Optional language model to use. If None, uses the default model from llm_factory.
-    
+        llm: An optional language model. If None, the default is used.
+
     Returns:
-        AgentExecutor: Configured agent for research planning tasks.
+        An AgentExecutor configured for research planning.
     """
     if llm is None:
         llm = get_llm()
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", RESEARCH_PLANNER_SYSTEM_PROMPT),
-        MessagesPlaceholder(variable_name="messages"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
-    
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", RESEARCH_PLANNER_SYSTEM_PROMPT),
+            MessagesPlaceholder(variable_name="messages"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ]
+    )
+
+    # This agent has no tools, as its only job is to plan.
     agent = create_openai_tools_agent(llm, tools=[], prompt=prompt)
     agent_executor = AgentExecutor(
-        agent=agent, 
-        tools=[], 
-        verbose=settings.DEBUG, 
-        handle_parsing_errors=True
+        agent=agent,
+        tools=[],
+        verbose=settings.DEBUG,
+        handle_parsing_errors=True,
+        name="ResearchPlannerAgent",
     )
-    
-    logger.info("Research Planner Agent created successfully")
+
+    logger.info("Research Planner Agent created successfully.")
     return agent_executor
 
-# --- Agent 2: Document Analysis Agent ---
-DOCUMENT_ANALYSIS_SYSTEM_PROMPT_V2 = """You are a Document Analysis Agent.
-Your primary task is to analyze scientific documents (chunks of ArXiv papers)
-retrieved from a knowledge base to answer specific questions or extract key information.
 
-Available Tools:
-1. knowledge_base_retrieval_tool:
-   - Purpose: Fetch relevant text chunks from the knowledge base
-   - Use for: Targeted information retrieval or initial context gathering
+# --- Agent 2: ArXiv Search Agent ---
 
-2. document_deep_dive_analysis_tool:
-   - Purpose: Comprehensive analysis of a single document
-   - Required parameters:
-     * document_id: ArXiv ID (e.g., '2301.12345')
-     * document_content: Full text content of the document
-     * research_focus: Specific questions or themes to analyze
+ARXIV_SEARCH_SYSTEM_PROMPT = """
+**Role:** You are a focused ArXiv Search Specialist.
 
-Workflow:
-1. Understand the question or analysis task
-2. Choose appropriate tool based on task requirements:
-   - Use knowledge_base_retrieval_tool for:
-     * Specific fact retrieval
-     * Direct question answering
-     * Initial context gathering
-   - Use document_deep_dive_analysis_tool for:
-     * Deep dive analysis
-     * Detailed reports
-     * Structured analysis of single documents
-3. Analyze retrieved information
-4. Synthesize findings
-5. Provide clear, factual answers with source citations
+**Task:** Your one and only task is to take a user's query and use the provided
+`arxiv_search` tool to find relevant scientific papers.
 
-Note: Always state if retrieved information is insufficient. Do not invent information.
+### Instructions:
+1.  Receive the search query.
+2.  Immediately call the `arxiv_search` tool with the query.
+3.  Return the direct, raw output from the tool.
+
+**Constraint:** Do not add any commentary, analysis, or formatting. Your job is
+to execute the search and nothing else.
 """
 
-def create_document_analysis_agent(llm: Optional[BaseLanguageModel] = None) -> AgentExecutor:
+
+def create_arxiv_search_agent(
+    llm: Optional[BaseLanguageModel] = None,
+) -> AgentExecutor:
     """
-    Creates a Document Analysis Agent for analyzing scientific documents.
-    
+    Creates the ArXiv Search Agent.
+
+    This is a simple, tool-focused agent. It is given a query and is expected
+    to use the `arxiv_search_tool` to find papers.
+
     Args:
-        llm: Optional language model to use. If None, uses the default model from llm_factory.
-    
+        llm: An optional language model. If None, the default is used.
+
     Returns:
-        AgentExecutor: Configured agent for document analysis tasks.
+        An AgentExecutor configured for ArXiv searching.
     """
     if llm is None:
         llm = get_llm()
 
-    tools: List[BaseTool] = [
-        knowledge_base_retrieval_tool,
-        document_deep_dive_analysis_tool
-    ]
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", DOCUMENT_ANALYSIS_SYSTEM_PROMPT_V2),
-        MessagesPlaceholder(variable_name="messages"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
-    
+    tools: List[BaseTool] = [arxiv_search_tool]
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", ARXIV_SEARCH_SYSTEM_PROMPT),
+            MessagesPlaceholder(variable_name="messages"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ]
+    )
+
     agent = create_openai_tools_agent(llm, tools=tools, prompt=prompt)
     agent_executor = AgentExecutor(
         agent=agent,
         tools=tools,
         verbose=settings.DEBUG,
         handle_parsing_errors=True,
-        max_iterations=10
+        name="ArxivSearchAgent",
     )
-    
-    logger.info(f"Document Analysis Agent created with tools: {[tool.name for tool in tools]}")
+
+    logger.info(f"ArXiv Search Agent created with tool: {tools[0].name}")
     return agent_executor
 
-# --- Agent 3: ArXiv Search Agent ---
-ARXIV_SEARCH_SYSTEM_PROMPT = """You are an ArXiv Search Agent. Your role is to find relevant scientific papers based on the given search query.
 
-You must ALWAYS use the arxiv_search_tool to perform searches. The tool requires the following parameters:
-- query: The search query string
-- max_results: Maximum number of results to return (default: 3)
-- sort_by: How to sort results (default: "relevance")
+# --- Agent 3: Document Analysis Agent ---
 
-When presenting search results, format them clearly with:
-1. Title
-2. Authors
-3. Summary
-4. PDF URL
+DOCUMENT_ANALYSIS_SYSTEM_PROMPT = """
+**Role:** You are a Deep Research Analyst.
 
-If no results are found, clearly state that. If there's an error, report it.
+**Goal:** To conduct a comprehensive analysis of scientific topics using the
+provided information and tools. You will be given a list of papers (summaries
+and links) and are expected to produce a detailed analysis.
 
-Example usage:
-Input: "What are the latest advancements in machine learning?"
-Action: Use arxiv_search_tool with query="machine learning" and max_results=3
+### Your Tools:
+1.  **`knowledge_base_retrieval_tool`**: Use this for quick, targeted information
+    retrieval from our internal document collection.
+2.  **`document_deep_dive_analysis_tool`**: This is your primary power tool. Use
+    it when a paper's summary seems particularly relevant or when you need more
+    detail than the summary provides. It reads the *entire PDF* and gives you a
+    thorough analysis.
 
-Remember to always use the arxiv_search_tool and format the results clearly."""
+### Workflow:
+1.  **Assess the Material:** Start by reviewing the list of paper titles and
+    summaries provided in the prompt.
+2.  **Strategize Your Analysis:** Identify the 1-3 most promising papers that are
+    key to answering the research question.
+3.  **Conduct Deep Dives:** For each key paper you identified, use the
+    `document_deep_dive_analysis_tool`. This is critical for a high-quality result.
+4.  **Synthesize:** Combine the initial summaries with the rich details from your
+    deep dives.
+5.  **Formulate the Final Analysis:** Structure all your findings into a single,
+    comprehensive answer that addresses the user's original request, covering
+    key findings, trends, and future directions.
 
-def create_arxiv_search_agent(llm: Optional[BaseLanguageModel] = None) -> AgentExecutor:
+**Constraint:** Your final output should be the complete analysis, not just the
+tool outputs. You must synthesize the information into a coherent report.
+"""
+
+
+def create_document_analysis_agent(
+    llm: Optional[BaseLanguageModel] = None,
+) -> AgentExecutor:
     """
-    Creates an ArXiv Search Agent for finding relevant scientific papers.
-    
+    Creates the Document Analysis Agent.
+
+    This is a sophisticated agent designed to analyze research papers. It is
+    equipped with a powerful `document_deep_dive_analysis_tool` that allows it
+    to read the full content of PDFs, enabling a much deeper level of analysis
+    than just reading summaries.
+
     Args:
-        llm: Optional language model to use. If None, uses the default model from llm_factory.
-    
+        llm: An optional language model. If None, the default is used.
+
     Returns:
-        AgentExecutor: Configured agent for ArXiv searching tasks.
+        An AgentExecutor configured for in-depth document analysis.
     """
     if llm is None:
         llm = get_llm()
-    
-    tools: List[BaseTool] = [arxiv_search_tool]
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", ARXIV_SEARCH_SYSTEM_PROMPT),
-        MessagesPlaceholder(variable_name="messages"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
-    
+
+    tools: List[BaseTool] = [
+        knowledge_base_retrieval_tool,
+        document_deep_dive_analysis_tool,
+    ]
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", DOCUMENT_ANALYSIS_SYSTEM_PROMPT),
+            MessagesPlaceholder(variable_name="messages"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ]
+    )
+
     agent = create_openai_tools_agent(llm, tools=tools, prompt=prompt)
     agent_executor = AgentExecutor(
-        agent=agent, 
-        tools=tools, 
-        verbose=settings.DEBUG, 
-        handle_parsing_errors=True
+        agent=agent,
+        tools=tools,
+        verbose=settings.DEBUG,
+        handle_parsing_errors=True,
+        max_iterations=10,
+        name="DocumentAnalysisAgent",
     )
-    
-    logger.info(f"ArXiv Search Agent created with tools: {[tool.name for tool in tools]}")
+
+    logger.info(
+        f"Document Analysis Agent created with tools: {[tool.name for tool in tools]}"
+    )
     return agent_executor
 
+
 # --- Agent 4: Synthesis Agent ---
-SYNTHESIS_AGENT_SYSTEM_PROMPT = """You are a Synthesis Agent.
-Your role is to synthesize analyzed information, research findings, and extracted data 
-from various sources into coherent, well-structured outputs.
 
-Available Information:
-- Initial user query
-- Research findings
-- Analyzed data
-- Previous agent outputs
+SYNTHESIS_AGENT_SYSTEM_PROMPT = """
+**Role:** You are a Senior Research Editor.
 
-Instructions:
-1. Review all provided information
-2. Understand the main goal/question
-3. Structure output logically
-4. Write clearly and factually
-5. Attribute information to sources
-6. Match output language to user's query
-7. Highlight any contradictions or gaps
+**Goal:** Your purpose is to transform a detailed, technical analysis into a
+final, polished, and easy-to-understand report for a user. You do not conduct
+new research or use tools.
 
-Note: You work only with provided information. No search or retrieval tools available.
+### Instructions:
+1.  **Review the Content:** Carefully read the entire analysis provided to you.
+2.  **Identify Key Insights:** Extract the most important findings, trends, and conclusions.
+3.  **Structure the Report:** Organize the information logically. The specific
+    structure (e.g., Executive Summary, Key Findings, etc.) will be requested
+    in the prompt. Your job is to populate that structure.
+4.  **Clarify and Refine:** Rewrite complex ideas in clear, concise language
+    without sacrificing accuracy.
+5.  **Ensure Coherence:** Create a smooth narrative that connects all parts of the
+    analysis.
+
+**Constraint:** You work ONLY with the information provided in the prompt. Do not
+add external information or personal opinions.
 """
 
-def create_synthesis_agent(llm: Optional[BaseLanguageModel] = None) -> AgentExecutor:
+
+def create_synthesis_agent(
+    llm: Optional[BaseLanguageModel] = None,
+) -> AgentExecutor:
     """
-    Creates a Synthesis Agent for combining and structuring information from various sources.
-    
+    Creates the Synthesis Agent.
+
+    This agent is tool-less. It is designed to take a large body of structured
+    text (the analysis from the previous step) and reformat it into a final,
+    polished report according to the structure requested in the prompt. It uses
+    a higher-temperature LLM to encourage more creative and fluent writing.
+
     Args:
-        llm: Optional language model to use. If None, uses the synthesis-optimized model 
-             with SYNTHESIS_LLM_TEMPERATURE.
-    
+        llm: An optional language model. If None, a specific synthesis model is used.
+
     Returns:
-        AgentExecutor: Configured agent for synthesis tasks.
+        An AgentExecutor configured for synthesis and reporting.
     """
     if llm is None:
+        # Use a model with higher temperature for more creative/fluent synthesis
         llm = get_llm(temperature=SYNTHESIS_LLM_TEMPERATURE)
-    
-    tools_for_synthesis: List[BaseTool] = []
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", SYNTHESIS_AGENT_SYSTEM_PROMPT),
-        MessagesPlaceholder(variable_name="messages"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
-    
-    agent = create_openai_tools_agent(llm, tools=tools_for_synthesis, prompt=prompt)
-    agent_executor = AgentExecutor(
-        agent=agent, 
-        tools=tools_for_synthesis, 
-        verbose=settings.DEBUG, 
-        handle_parsing_errors=True
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", SYNTHESIS_AGENT_SYSTEM_PROMPT),
+            MessagesPlaceholder(variable_name="messages"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ]
     )
-    
-    logger.info("Synthesis Agent created successfully")
+
+    agent = create_openai_tools_agent(llm, tools=[], prompt=prompt)
+    agent_executor = AgentExecutor(
+        agent=agent,
+        tools=[],
+        verbose=settings.DEBUG,
+        handle_parsing_errors=True,
+        name="SynthesisAgent",
+    )
+
+    logger.info("Synthesis Agent created successfully.")
     return agent_executor
 
 

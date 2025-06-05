@@ -8,114 +8,83 @@ Optional Badges:
 
 ## 🚀 Overview
 
-"**MAKERS**" is a multi-agent system designed and implemented to collaboratively search, analyze, and synthesize information from complex document corpora (e.g., scientific research papers, technical documentation). It leverages Large Language Models (LLMs) through frameworks like LangGraph (for orchestration) and LlamaIndex (for advanced Retrieval Augmented Generation - RAG), with MongoDB Atlas serving as the vector database and for persisting agent states.
+"**MAKERS**" is a multi-agent system designed to collaboratively search, analyze, and synthesize information from complex document corpora (e.g., scientific research papers). It leverages Large Language Models (LLMs) through frameworks like LangGraph for orchestration and LlamaIndex for advanced Retrieval Augmented Generation (RAG), with MongoDB serving as the vector database and for persisting agent states.
 
 The primary goal of this project is to build an intelligent engine capable of:
-* Ingesting and processing large sets of documents (e.g., ArXiv papers on various topics like Machine Learning, AI, Robotics, etc., based on user queries).
-* Performing semantic searches and retrieving relevant information chunks.
-* Employing a team of specialized AI agents (Planner, ArXiv Searcher, Document Analyzer, Synthesizer, and a conceptual CrewAI team for deep document analysis) to:
-    * Plan research tasks based on user queries.
-    * Search external sources (ArXiv) and internal knowledge bases (MongoDB).
-    * Analyze and extract key information from documents, potentially using specialized agent teams for deep dives.
-    * Synthesize findings into coherent reports or answers to complex questions.
-* Allowing for robust evaluation of its RAG and synthesis capabilities.
-* Tracking experiments and metrics using Weights & Biases.
-
-This project serves as a portfolio piece demonstrating expertise in Generative AI, LLM-powered agent systems, RAG pipelines, LangGraph, CrewAI integration concepts, and MLOps practices.
+*   Ingesting and processing large sets of documents (e.g., ArXiv papers).
+*   Performing semantic searches and retrieving relevant information chunks.
+*   Employing a team of specialized AI agents (Planner, ArXiv Searcher, Document Analyzer, Synthesizer) to:
+    *   **Plan** research tasks based on user queries.
+    *   **Search** external sources (ArXiv) and internal knowledge bases.
+    *   **Analyze** search results, with the capability to perform deep dives into full PDF documents via their URLs.
+    *   **Synthesize** all findings into a coherent, final report.
+*   Allowing for robust evaluation of its RAG and synthesis capabilities.
+*   Tracking experiments and metrics using Weights & Biases.
 
 ## ✨ Features
 
-* **Modular Data Pipeline**: Python scripts for downloading ArXiv papers, parsing PDFs, cleaning text, chunking by tokens, and generating embeddings. Data is organized into corpus-specific subdirectories.
-* **MongoDB Atlas Integration**:
+* **Modular Data Pipeline**: Scripts for downloading ArXiv papers, parsing PDFs, cleaning text, chunking, and generating embeddings.
+* **MongoDB Integration**:
     * Vector store using Atlas Vector Search for semantic retrieval.
-    * Storage for document metadata and processed text chunks.
-    * LangGraph checkpointer backend (`MongoDBSaver`) for persistent and resumable agent workflows.
-* **Advanced RAG with LlamaIndex**: `RetrievalEngine` utilizing LlamaIndex with `MongoDBAtlasVectorSearch` for efficient information retrieval, supporting vector search and metadata filtering.
+    * Storage for document metadata and text chunks.
+    * LangGraph checkpointer (`MongoDBSaver`) for persistent and resumable workflows.
+* **Advanced RAG with LlamaIndex**: A `RetrievalEngine` for efficient information retrieval, supporting vector search and metadata filtering.
 * **Multi-Agent System with LangGraph**:
-    * Orchestration of specialized agents with defined roles and more generalized planning capabilities.
-    * Dynamic routing capabilities initiated by a planner and an improved rule-based router.
-    * Persistent state management for complex, potentially long-running tasks.
-* **Hybrid Agent Architecture Concept**: Includes a `DocumentAnalysisCrew` (built with CrewAI) integrated as a tool for optional in-depth analysis of specific documents by a dedicated team of sub-agents.
-* **Customizable Tools for Agents**: Includes tools for live ArXiv searching, knowledge base retrieval, and the CrewAI-powered deep document analysis.
-* **Comprehensive Evaluation Suite**:
-    * `RagEvaluator` for retrieval metrics (Hit Rate, MRR, Precision@K).
-    * `SynthesisEvaluator` using LLM-as-a-Judge for assessing synthesis quality (relevance, faithfulness).
-    * `WandBMetricsLogger` for seamless integration with Weights & Biases experiment tracking.
-* **CLI Interface**: Python scripts (`run_ingestion.py`, `run_makers.py`, `run_evaluation.py`) to manage the system.
-* **Jupyter Notebooks**: For environment setup, component demonstration, experimentation, and end-to-end testing.
-* **Reproducible Environment**: Defined via `environment.yml` (Conda) and `requirements.txt` (pip).
-* **Containerization**: `Dockerfile` provided for building a portable application image.
-* **API Layer (Basic)**: A FastAPI application (`src/api/main.py`) providing an endpoint to interact with the **MAKERS** system.
+    * Orchestration of specialized agents with clearly defined roles.
+    * Dynamic, state-based routing between agents.
+    * Persistent state management for complex, long-running tasks.
+* **Robust Tooling for Agents**: Includes tools for live ArXiv searching, internal knowledge base retrieval, and a powerful **PDF deep-dive analysis tool** that works directly from a URL.
+* **Comprehensive Evaluation Suite**: Evaluators for RAG metrics (Hit Rate, MRR) and synthesis quality (LLM-as-a-Judge).
+* **CLI Interface**: Scripts (`run_ingestion.py`, `run_makers.py`, `run_evaluation.py`) to manage the system.
+* **Jupyter Notebooks**: For setup, component demonstration, and end-to-end testing.
+* **Reproducible Environment**: Defined via `environment.yml` (Conda) and `requirements.txt`.
+* **Containerization & API**: A `Dockerfile` and a basic FastAPI layer are provided.
 
 ### 🛠️ Tech Stack & Architecture
 
 * **Core Language**: Python 3.11+
 * **LLM Orchestration**: LangGraph
-* **Specialized Agent Teams**: CrewAI (for specific sub-tasks like deep document analysis)
-* **RAG & Data Indexing**: LlamaIndex (interfacing with MongoDB Atlas Vector Search)
-* **LLM Interactions**: LangChain (agents, prompts, LLM wrappers).
-* **Centralized LLM Management**: The `src/llm_services/llm_factory.py` module plays a crucial role by centralizing the instantiation of Language Models (LLMs). It allows for consistent selection and configuration of the LLM (OpenAI, Hugging Face API, Ollama) for all agents (LangGraph, CrewAI) and other components (like `SynthesisEvaluator`) based on parameters defined in `.env` and `config/settings.py`. This approach facilitates maintenance and flexibility in choosing model providers. It also integrates specific mechanisms like `StreamFallbackChatHuggingFace` to improve streaming compatibility for certain providers.
-* **Generative LLMs (Agents, Synthesis)**:
-    * **Default Provider:** Ollama (using `mistral` by default, or `OLLAMA_GENERATIVE_MODEL_NAME` from `.env`).
-    * **Configurable:** Supports OpenAI (e.g., `gpt-4o`), Hugging Face API (e.g., `Mixtral-8x7B`), and other Ollama models (e.g., `llama3`) via the `DEFAULT_LLM_MODEL_PROVIDER` variable in the `.env` file. *The instantiation and configuration of these models are managed by `src/llm_services/llm_factory.py`.*
-* **Embedding Models (RAG)**:
-    * **Default Provider:** Ollama (using `nomic-embed-text` by default, 768 dimension, or `OLLAMA_EMBEDDING_MODEL_NAME` from `.env`).
-    * **Configurable:** Supports OpenAI (e.g., `text-embedding-3-small`, 1536 dimension), Hugging Face (Sentence Transformers models like `all-MiniLM-L6-v2`, 384 dimension), and other Ollama embedding models via the `DEFAULT_EMBEDDING_PROVIDER` variable in the `.env` file.
-* **Required API Keys/Setup:**
-    * If using Ollama (default): A running Ollama instance (`OLLAMA_BASE_URL` typically `http://localhost:11434`) with the necessary models pulled (e.g., `ollama pull mistral`, `ollama pull nomic-embed-text`).
-    * If overriding to OpenAI: `OPENAI_API_KEY` is required.
-    * If overriding to Hugging Face API for generative LLMs: `HUGGINGFACE_API_KEY` is required.
-    * Local Hugging Face embeddings (Sentence Transformers) do not require an API key.
+* **Specialized Agent Teams**: CrewAI (for the deep document analysis sub-task)
+* **RAG & Data Indexing**: LlamaIndex
+* **LLM Interactions**: LangChain
+* **Centralized LLM Management**: The `src/llm_services/llm_factory.py` module centralizes the instantiation of LLMs (OpenAI, Hugging Face, Ollama) for all components.
 * **Vector Database & Checkpointing**: MongoDB Atlas
-* **Data Processing**: PyMuPDF (PDF parsing), TikToken (tokenization), Pandas
-* **External APIs**: ArXiv Python library
-* **Experiment Tracking**: Weights & Biases (W&B)
-* **Environment Management**: Conda, Pip
-* **Evaluation**: Custom evaluators, LLM-as-a-Judge
+* **Experiment Tracking**: Weights & Biases
 * **API**: FastAPI, Uvicorn
 
 ### High-Level Architecture
 
-1.  **Data Ingestion**: ArXiv papers (or other documents in future extensions) are downloaded based on a specific query. PDFs and metadata are stored in a dynamically named subdirectory within `data/corpus/` (derived from the query or a specified corpus name). Documents are then parsed, chunked, embedded (configurable provider; defaults to Ollama with `nomic-embed-text`), and stored in a MongoDB collection. Atlas Vector Search and text indexes are created (the vector index dimension adapts to the chosen embedding model).
-2.  **User Query**: Submitted via CLI or API.
+1.  **Data Ingestion**: ArXiv papers are downloaded, processed, chunked, embedded, and stored in MongoDB. Vector search indexes are created automatically.
+2.  **User Query**: A user submits a research query via the CLI or API.
 3.  **LangGraph Workflow (`MAKERS`)**:
-    * *LLM instances for the agents in this workflow (Planner, ArXiv Searcher, Document Analyzer, Synthesizer) are provided by the centralized module `src/llm_services/llm_factory.py`, ensuring consistent configuration and provider selection (defaults to Ollama if not specified in `.env`) across the system.*
-    * A `ResearchPlannerAgent` creates a research plan tailored to the user query.
-    * An improved `router_after_planner` directs flow:
-        * `ArxivSearchAgent` may search ArXiv for new papers (using `arxiv_search_tool`) based on the plan.
-        * `DocumentAnalysisAgent` analyzes search results and/or retrieves relevant chunks from MongoDB (using `knowledge_base_retrieval_tool`). If a deep dive on a specific document is needed per the plan, it can use the `document_deep_dive_analysis_tool` (which runs the CrewAI team).
-    * A `SynthesisAgent` consolidates all information into a final report/answer, respecting the language of the input query.
-    * Workflow state is persisted in MongoDB using `MongoDBSaver`.
-4.  **Evaluation**: Scripts and notebooks use `RagEvaluator` and `SynthesisEvaluator`, logging results to W&B via `WandBMetricsLogger`.
+    *   A `ResearchPlannerAgent` deconstructs the query into a structured plan.
+    *   Based on the plan, an `ArxivSearchAgent` finds relevant new papers using the `arxiv_search_tool`.
+    *   The `DocumentAnalysisAgent` receives the list of papers. It first reviews the summaries. For the most promising papers, it is **explicitly instructed to use the `document_deep_dive_analysis_tool`**, providing the PDF URL to get a full analysis of the paper's content.
+    *   A `SynthesisAgent` consolidates all the collected information (summaries and deep-dive analyses) into a final, polished report.
+    *   The entire workflow state is checkpointed in MongoDB at each step, ensuring persistence and resumability.
+4.  **Evaluation**: Separate scripts allow for the evaluation of the RAG and Synthesis components, with results logged to W&B.
 
 ## 📁 Directory Structure
 ```
 makers/
-├── config/              # Configuration files (settings.py, logging_config.py)
-├── data/                # Local data (corpus, evaluation dataset examples)
-│   ├── corpus/          # Contains subdirectories for different ingested corpora
-│   │   └── [corpus_name]/ # Dynamically created for each ingestion run
-│   │       ├── pdfs/
-│   │       └── metadata/
-│   └── evaluation/      # Example JSON evaluation dataset files
-├── notebooks/           # Jupyter notebooks for setup, demos, experiments
-├── scripts/             # CLI scripts (run_ingestion.py, run_makers.py, run_evaluation.py)
-├── src/                 # Source code for the project
-│   ├── agents/          # Agent architectures (LangGraph) and tool definitions
-│   │   └── crewai_teams/ # CrewAI team definitions (e.g., document_analysis_crew.py)
-│   ├── api/             # FastAPI application (main.py, schemas.py)
-│   ├── data_processing/ # Modules for data ingestion and preprocessing
-│   ├── evaluation/      # Modules for RAG/synthesis evaluation and W&B logging
-│   ├── graph/           # LangGraph workflow definition and checkpointer
-│   ├── llm_services/    # Modules for LLM management and instantiation (e.g., llm_factory.py)
-│   ├── rag/             # RAG engine using LlamaIndex
-│   └── vector_store/    # MongoDB manager for collections and indexes
-├── .env                 # Local environment variables (API Keys, MONGODB_URI - GIT IGNORED)
+├── config/              # Configuration files
+├── data/                # Local data (corpus, evaluation datasets)
+├── notebooks/           # Jupyter notebooks for demonstration and testing
+├── scripts/             # CLI scripts (run_ingestion.py, run_makers.py)
+├── src/                 # Source code
+│   ├── agents/          # Agent architectures and tool definitions
+│   │   └── crewai_teams/ # CrewAI sub-task definitions
+│   ├── api/             # FastAPI application
+│   ├── data_processing/ # Data ingestion and preprocessing modules
+│   ├── evaluation/      # Evaluation and W&B logging modules
+│   ├── graph/           # LangGraph workflow definition
+│   ├── llm_services/    # Centralized LLM factory
+│   ├── rag/             # RAG engine (LlamaIndex)
+│   └── vector_store/    # MongoDB management
 ├── .env.example         # Example template for .env
 ├── environment.yml      # Conda environment definition
 ├── requirements.txt     # Pip requirements file
-├── Dockerfile           # Instructions to build the Docker image
-├── .dockerignore        # Specifies files to ignore when building the Docker image
+├── Dockerfile           # Docker image definition
 └── README.md            # This file
 ```
 
@@ -128,110 +97,74 @@ makers/
     ```
 
 2.  **Create and Activate Conda Environment**:
-    * Ensure you have Conda installed.
-    * Create the environment from the `environment.yml` file:
-        ```bash
-        conda env create -f environment.yml
-        ```
-    * Activate the environment:
-        ```bash
-        conda activate makers
-        ```
+    ```bash
+    conda env create -f environment.yml
+    conda activate makers
+    ```
 
 3.  **Set Up Environment Variables (`.env` file)**:
-    * Create a file named `.env` in the root directory of the project by copying `.env.example`.
-    * **Ollama is now the default provider.** If you wish to use Ollama, ensure your Ollama server is running and the desired models (e.g., `mistral`, `nomic-embed-text`) are pulled. Configure `OLLAMA_BASE_URL` (e.g., `http://localhost:11434`) and optionally `OLLAMA_GENERATIVE_MODEL_NAME` and `OLLAMA_EMBEDDING_MODEL_NAME` in your `.env` if you want to use models different from the new defaults (`mistral`, `nomic-embed-text`).
-    * If you prefer to use OpenAI or Hugging Face API, you **must** set `DEFAULT_LLM_MODEL_PROVIDER` and/or `DEFAULT_EMBEDDING_PROVIDER` in your `.env` file, along with their respective API keys and model identifiers (e.g., `OPENAI_API_KEY`, `HUGGINGFACE_API_KEY`, `HUGGINGFACE_REPO_ID`).
-    * Configure `MONGODB_URI` for your MongoDB connection.
+    *   Create a `.env` file by copying `.env.example`.
+    *   **Ollama is the default provider.** Ensure your Ollama server is running.
+    *   Configure `MONGODB_URI` with your MongoDB connection string.
+    *   To use other providers like OpenAI, set `DEFAULT_LLM_MODEL_PROVIDER="openai"` and provide the `OPENAI_API_KEY`.
 
-4.  **(Optional) W&B Login**: If `WANDB_API_KEY` is not set in `.env`, you might need to log in via the CLI for W&B logging to work:
+4.  **(Optional) W&B Login**:
     ```bash
     wandb login
     ```
 
-5.  **Verify Setup**: Run the first Jupyter notebook to ensure your environment is correctly configured:
-    ```bash
-    # Ensure your 'makers' Conda environment is activated
-    jupyter notebook notebooks/00_setup_environment.ipynb
-    ```
-    Follow the instructions within the notebook.
-
 ## 🚀 Running the Project
 
-All commands below should be run from the root directory of the project (`makers/`) with the `makers` Conda environment activated.
+All commands should be run from the root directory (`makers/`) with the `makers` Conda environment activated.
 
 ### 1. Data Ingestion
 
-To populate your MongoDB database with ArXiv papers (this will use Ollama for embeddings by default if not overridden in `.env`):
+Populate your MongoDB database with ArXiv papers:
 ```bash
-python -m scripts.run_ingestion --query "What are the latest advancements in using large language models for robot task planning?" \
-    --arxiv_keywords "robotics, planning, large language models" \
-    --corpus_name "my_custom_corpus_name" \
-    --max_results 10 \
-    --log_level INFO
+python -m scripts.run_ingestion --query "Your Research Topic" --max_results 10
 ```
-* `--query "Your research topic..."`: Your main query in natural language. This will be used to name the data subdirectory if `--corpus_name` is not provided, and can provide context.
-* `--arxiv_keywords "keywords for arxiv"`: **(Recommended)** Provide specific, ArXiv-friendly keywords (preferably English, using AND/OR) for a more targeted ArXiv search. If omitted, the main `--query` is used for ArXiv search, which might be less effective.
-* `--corpus_name "my_corpus"`: **(Optional)** Specify a unique name for the subdirectory in `data/corpus/` where PDFs and metadata for this ingestion run will be stored. If omitted, a name is generated from the `--query`.
-* `--max_results N`: Number of papers to fetch.
-* `--skip_download`: If you have already downloaded PDFs and metadata into the correct target corpus subdirectory (e.g., `data/corpus/my_corpus/pdfs/`), use this flag to skip the ArXiv download step and re-process local files.
-* This script handles downloading, parsing, chunking, embedding, storage in MongoDB, and index creation. Data for each run (based on `corpus_name` or the sanitized `query`) is stored in its own subdirectory under `data/corpus/`.
+*   This script downloads, processes, and embeds papers into your database.
 
-### 2. Running the MAKERS System
+### 2. Running the MAKERS Workflow
 
-To submit a query to the multi-agent system (this will use Ollama for LLMs by default if not overridden in `.env`):
+Submit a query to the multi-agent system:
 ```bash
-python -m scripts.run_makers --query "What are the latest advancements in using large language models for robot task planning?" --log_level INFO
+python -m scripts.run_makers --query "What are the latest advancements in using large language models for robot task planning?"
 ```
-* A `thread_id` will be generated (or you can provide one with `--thread_id`) for conversation history and checkpointing.
-* Output from agents and tools will stream to the console. The final synthesized output will be displayed at the end.
-* Use `--log_level DEBUG` for highly detailed verbose output.
+*   A `thread_id` will be generated for the session.
+*   Agent and tool outputs will stream to the console, followed by the final report.
+*   Use `--log_level DEBUG` for more detailed output.
 
 ### 3. Running Evaluations
 
-To evaluate the RAG performance and synthesis quality (ensure evaluation datasets are prepared as per `notebooks/07_evaluation_and_logging.ipynb`):
+Evaluate the system's performance:
 ```bash
-python -m scripts.run_evaluation --eval_type all \
-    --rag_dataset data/evaluation/rag_eval_dataset.json \
-    --synthesis_dataset data/evaluation/synthesis_eval_dataset.json \
-    --wandb_project "MAKERS-MyEvals" \
-    --wandb_run_name "Eval_Run_$(date +%Y%m%d_%H%M)" \
-    --log_level INFO
+python -m scripts.run_evaluation --eval_type all
 ```
+*   This script uses the example evaluation datasets in `data/evaluation/`.
 
-* Use `--wandb_disabled` to skip W&B logging.
+## 📓 Notebooks for Demonstration
 
-### 4. Running the API (Optional)
+The `notebooks/` directory contains Jupyter Notebooks (`.ipynb`) for a step-by-step exploration of the system's components.
 
-If you want to expose the MAKERS via a FastAPI:
-```bash
-uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
-```
+*   `00_setup_environment.ipynb`: Verify your environment configuration.
+*   `01_data_ingestion_and_embedding.ipynb`: Demonstrate the data ingestion pipeline.
+*   `02_rag_strategies_exploration.ipynb`: Explore RAG strategies.
+*   `03_agent_development_and_tooling.ipynb`: Test individual agents and tools.
+*   `04_langgraph_workflow_design.ipynb`: Run and observe the main LangGraph workflow interactively.
+*   `05_crewai_team_integration.ipynb`: Demonstrate the CrewAI deep-dive integration.
+*   `06_end_to_end_pipeline_test.ipynb`: Run an in-depth test of the full pipeline.
+*   `07_evaluation_and_logging.ipynb`: Detail the use of evaluation modules.
 
-You can then send POST requests to `http://localhost:8000/invoke_makers`.
+## 🔮 Future Work
 
-## 📓 Notebooks & Scripts for Demonstration and Testing
-
-The `notebooks/` directory contains a mix of Jupyter Notebooks (`.ipynb`) for initial setup and Python scripts (`.py`) for detailed examples, component demonstrations, and testing. The `.py` scripts (01-07) are optimized versions and can be executed directly or converted to `.ipynb` format for interactive exploration (e.g., using `jupytext`).
-
-*   `00_setup_environment.ipynb`: Use this Jupyter Notebook for initial environment configuration and verification.
-*   `01_data_ingestion_and_embedding.py`: Demonstrates the step-by-step data ingestion pipeline.
-*   `02_rag_strategies_exploration.py`: Allows for exploring RAG strategies using the `RetrievalEngine`.
-*   `03_agent_development_and_tooling.py`: Facilitates testing of individual agents and their associated tools.
-*   `04_langgraph_workflow_design.py`: Shows execution and observation of the main LangGraph workflow.
-*   `05_crewai_team_integration.py`: Demonstrates the CrewAI `DocumentAnalysisCrew` integration.
-*   `06_end_to_end_pipeline_test.py`: Provides an in-depth test of the full pipeline with a complex query.
-*   `07_evaluation_and_logging.py`: Details the use of evaluation modules and logging metrics to Weights & Biases.
-
-## 🔮 Future Work / To-Do (Conceptual)
-
-* Implement more sophisticated, LLM-based routing logic in `main_workflow.py`.
-* Integrate more advanced RAG strategies into `RetrievalEngine` (e.g., Parent Document Retriever, HyDE).
-* Develop and integrate a `QualityCheckAgent` for reviewing synthesized outputs.
-* Expand the toolset for agents (e.g., broader web search, code execution for data analysis).
-* Enhance the FastAPI with more features and robust error handling.
-* Implement comprehensive unit and integration tests in the `tests/` directory.
-* Add LLM-based keyword extraction from the user's natural language query in `run_ingestion.py` to automatically generate optimized `--arxiv_keywords`.
+*   Implement more sophisticated, LLM-based routing logic.
+*   Integrate more advanced RAG strategies (e.g., Parent Document Retriever).
+*   Add a `QualityCheckAgent` to review the final synthesis.
+*   Expand the toolset for agents (e.g., web search).
+*   Enhance the FastAPI with more features.
+*   Implement a comprehensive test suite.
+*   Add LLM-based keyword extraction to optimize the data ingestion search.
 
 ## 📄 License
 ```

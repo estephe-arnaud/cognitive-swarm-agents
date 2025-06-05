@@ -23,7 +23,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 from config.logging_config import setup_logging
-from src.graph.main_workflow import run_makers_v2_1, GraphState
+from src.graph.main_workflow import run_workflow, GraphState
 from src.api.schemas import SwarmQueryRequest, SwarmResponse, ErrorResponse, SwarmOutputMessage
 
 # Configure logging
@@ -185,7 +185,7 @@ async def invoke_makers_endpoint(request_data: SwarmQueryRequest = Body(...)):
 
     try:
         # Execute the cognitive workflow
-        final_graph_state_dict: Dict[str, Any] = await run_makers_v2_1(
+        final_graph_state_dict: Dict[str, Any] = await run_workflow(
             query=query,
             thread_id=thread_id
         )
