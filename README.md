@@ -90,71 +90,74 @@ makers/
 
 ## ⚙️ Setup Instructions
 
-1.  **Clone the Repository**:
+**Prérequis :**
+*   **Python 3.11+**
+*   **Poetry** : Un outil pour la gestion des dépendances et des environnements virtuels. [Instructions d'installation de Poetry](https://python-poetry.org/docs/#installation).
+*   **Ollama (par défaut)** : Assurez-vous que votre serveur Ollama est en cours d'exécution.
+
+1.  **Cloner le Dépôt** :
     ```bash
     git clone https://github.com/estephe-arnaud/makers
     cd makers
     ```
 
-2.  **Create and Activate Conda Environment**:
+2.  **Configurer les Variables d'Environnement** :
+    *   Créez un fichier `.env` en copiant le modèle `.env.example`.
+    *   Configurez `MONGODB_URI` avec votre chaîne de connexion MongoDB.
+    *   (Optionnel) Pour utiliser d'autres fournisseurs de LLM comme OpenAI, décommentez et configurez `DEFAULT_LLM_MODEL_PROVIDER="openai"` et `OPENAI_API_KEY`.
+
+3.  **Installer les Dépendances** :
+    *   Poetry créera automatiquement un environnement virtuel et installera toutes les dépendances listées dans `pyproject.toml`.
     ```bash
-    conda env create -f environment.yml
-    conda activate makers
+    poetry install
     ```
+    *   Cette commande installe les dépendances de production et de développement. Pour une installation uniquement de production, utilisez `poetry install --no-dev`.
 
-3.  **Set Up Environment Variables (`.env` file)**:
-    *   Create a `.env` file by copying `.env.example`.
-    *   **Ollama is the default provider.** Ensure your Ollama server is running.
-    *   Configure `MONGODB_URI` with your MongoDB connection string.
-    *   To use other providers like OpenAI, set `DEFAULT_LLM_MODEL_PROVIDER="openai"` and provide the `OPENAI_API_KEY`.
-
-4.  **(Optional) W&B Login**:
+4.  **(Optionnel) Se Connecter à W&B** :
     ```bash
-    wandb login
+    poetry run wandb login
     ```
 
 ## 🚀 Running the Project
 
-All commands should be run from the root directory (`makers/`) with the `makers` Conda environment activated.
+Toutes les commandes doivent être exécutées depuis le répertoire racine du projet. Utilisez `poetry run` pour vous assurer que les commandes s'exécutent dans l'environnement virtuel géré par Poetry.
 
 ### 1. Data Ingestion
 
-Populate your MongoDB database with ArXiv papers:
+Pour peupler votre base de données MongoDB avec des articles ArXiv :
 ```bash
-python -m scripts.run_ingestion --query "Your Research Topic" --max_results 10
+poetry run python -m scripts.run_ingestion --query "Your Research Topic" --max_results 10
 ```
-*   This script downloads, processes, and embeds papers into your database.
 
 ### 2. Running the MAKERS Workflow
 
-Submit a query to the multi-agent system:
+Pour soumettre une requête au système multi-agents :
 ```bash
-python -m scripts.run_makers --query "What are the latest advancements in using large language models for robot task planning?"
+poetry run python -m scripts.run_makers --query "What are the latest advancements in using large language models for robot task planning?"
 ```
-*   A `thread_id` will be generated for the session.
-*   Agent and tool outputs will stream to the console, followed by the final report.
-*   Use `--log_level DEBUG` for more detailed output.
+*   Un `thread_id` sera généré pour la session.
+*   Utilisez `--log_level DEBUG` pour une sortie plus détaillée.
 
 ### 3. Running Evaluations
 
-Evaluate the system's performance:
+Pour évaluer les performances du système :
 ```bash
-python -m scripts.run_evaluation --eval_type all
+poetry run python -m scripts.run_evaluation --eval_type all
 ```
-*   This script uses the example evaluation datasets in `data/evaluation/`.
 
 ## 📓 Notebooks for Demonstration
 
-The `notebooks/` directory contains Jupyter Notebooks (`.ipynb`) for a step-by-step exploration of the system's components.
+Pour utiliser les notebooks, vous devez d'abord lancer un shell dans l'environnement du projet, puis démarrer Jupyter.
 
-*   `00_setup_environment.ipynb`: Verify your environment configuration.
-*   `01_data_ingestion_and_embedding.ipynb`: Demonstrate the data ingestion pipeline.
-*   `02_rag_strategies_exploration.ipynb`: Explore RAG strategies.
-*   `03_agent_development_and_tooling.ipynb`: Test individual agents and tools.
-*   `04_langgraph_workflow_design.ipynb`: Run and observe the main LangGraph workflow interactively.
-*   `05_crewai_team_integration.ipynb`: Demonstrate the CrewAI deep-dive integration.
-*   `06_end_to_end_pipeline_test.ipynb`: Run an in-depth test of the full pipeline.
-*   `07_evaluation_and_logging.ipynb`: Detail the use of evaluation modules.
+1.  **Activer l'environnement Poetry** :
+    ```bash
+    poetry shell
+    ```
+2.  **Lancer Jupyter** :
+    ```bash
+    jupyter notebook
+    ```
+    *   Depuis l'interface Jupyter, naviguez vers le répertoire `notebooks/` et ouvrez le notebook de votre choix. Les dépendances de développement (`jupyter`, `ipykernel`) ont déjà été installées via `poetry install`.
 
 ## 🔮 Future Work
 
